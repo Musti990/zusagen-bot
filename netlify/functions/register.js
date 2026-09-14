@@ -22,6 +22,10 @@ exports.handler = async () => {
         { name: 'info', description: 'Zusatzinfo', type: 3, required: false },
       ],
     },
+    {
+      name: 'mitglieder',
+      description: 'Zeigt alle Servermitglieder gruppiert nach Rolle',
+    },
   ];
 
   const url = guildId

@@ -26,6 +26,10 @@ exports.handler = async () => {
       name: 'mitglieder',
       description: 'Zeigt alle Servermitglieder gruppiert nach Rolle',
     },
+    {
+      name: 'position',
+      description: 'Postet ein dauerhaftes Panel zur Positionswahl (ZDM, IV, LM, RM, ZOM, ST, TW)',
+    },
   ];
 
   const url = guildId

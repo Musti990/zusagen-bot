@@ -296,7 +296,7 @@ async function handleMembersCommand(interaction) {
 }
 
 // ---------- Positions-Auswahl (/position) ----------
-const POSITIONS = ['ZDM', 'IV', 'LM', 'RM', 'ZOM', 'ST', 'TW'];
+const POSITIONS = ['ZDM', 'ZIV', 'LIV', 'RIV', 'LM', 'RM', 'ZOM', 'ST', 'TW'];
 
 function buildPositionComponents() {
   const rows = [];

@@ -47,8 +47,53 @@ async function getTopRoleName(guildId, roleIds) {
   }
 }
 
+// ---------- Wer hat noch nicht abgestimmt? ----------
+async function getMissingFields(guildId, respondedIds) {
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
+
+  try {
+    const rolesRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader });
+    if (!rolesRes.ok) return [];
+    const roles = await rolesRes.json();
+    const roleById = {};
+    roles.forEach((r) => (roleById[r.id] = r));
+
+    const membersRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+      headers: authHeader,
+    });
+    if (!membersRes.ok) return [];
+    const members = await membersRes.json();
+
+    const groups = {};
+    for (const m of members) {
+      if (m.user?.bot) continue;
+      if (respondedIds.has(m.user.id)) continue;
+
+      const memberRoles = (m.roles || [])
+        .map((id) => roleById[id])
+        .filter((r) => r && r.name !== '@everyone')
+        .sort((a, b) => b.position - a.position);
+      const topRole = memberRoles.length > 0 ? memberRoles[0].name : 'Ohne Rolle';
+      const name = m.nick || m.user?.username || 'Unbekannt';
+      if (!groups[topRole]) groups[topRole] = [];
+      groups[topRole].push(name);
+    }
+
+    const rolePosition = (roleName) => roles.find((r) => r.name === roleName)?.position ?? -1;
+    const sortedGroupNames = Object.keys(groups).sort((a, b) => rolePosition(b) - rolePosition(a));
+
+    return sortedGroupNames.slice(0, 20).map((roleName) => ({
+      name: `❔ ${roleName} — fehlt (${groups[roleName].length})`,
+      value: groups[roleName].map((n, i) => `${i + 1}. **${n}**`).join('\n') || '—',
+      inline: true,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ---------- Discord-Embed & Buttons bauen ----------
-function buildEmbed(ev) {
+async function buildEmbed(ev) {
   const fmtList = (arr) =>
     arr.length === 0
       ? '—'
@@ -57,6 +102,18 @@ function buildEmbed(ev) {
   const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
   const acceptedHeader =
     overflow > 0 ? `✅ Accepted (${ev.limit} +${overflow})` : `✅ Accepted (${ev.accepted.length})`;
+
+  const fields = [
+    { name: acceptedHeader, value: fmtList(ev.accepted), inline: true },
+    { name: `❓ Maybe (${ev.maybe.length})`, value: fmtList(ev.maybe), inline: true },
+    { name: `❌ Declined (${ev.declined.length})`, value: fmtList(ev.declined), inline: true },
+  ];
+
+  if (ev.guildId) {
+    const respondedIds = new Set([...ev.accepted, ...ev.maybe, ...ev.declined].map((u) => u.id));
+    const missingFields = await getMissingFields(ev.guildId, respondedIds);
+    fields.push(...missingFields);
+  }
 
   return {
     title: ev.title,
@@ -67,11 +124,7 @@ function buildEmbed(ev) {
     ]
       .filter(Boolean)
       .join('\n'),
-    fields: [
-      { name: acceptedHeader, value: fmtList(ev.accepted), inline: true },
-      { name: `❓ Maybe (${ev.maybe.length})`, value: fmtList(ev.maybe), inline: true },
-      { name: `❌ Declined (${ev.declined.length})`, value: fmtList(ev.declined), inline: true },
-    ],
+    fields,
     footer: { text: `Erstellt von ${ev.creator}` },
   };
 }
@@ -115,6 +168,7 @@ async function handleCreateEvent(interaction, store) {
     limit: opts.limit,
     timestamp: Math.floor(date.getTime() / 1000),
     creator,
+    guildId: interaction.guild_id,
     accepted: [],
     maybe: [],
     declined: [],
@@ -124,7 +178,7 @@ async function handleCreateEvent(interaction, store) {
 
   return json(200, {
     type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
-    data: { embeds: [buildEmbed(ev)], components: buildComponents(eventId) },
+    data: { embeds: [await buildEmbed(ev)], components: buildComponents(eventId) },
   });
 }
 
@@ -171,7 +225,7 @@ async function handleButton(interaction, store) {
 
   return json(200, {
     type: 7, // UPDATE_MESSAGE
-    data: { embeds: [buildEmbed(ev)], components: buildComponents(eventId) },
+    data: { embeds: [await buildEmbed(ev)], components: buildComponents(eventId) },
   });
 }
 

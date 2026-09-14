@@ -32,7 +32,7 @@ function json(statusCode, data) {
 // ---------- Discord-Embed & Buttons bauen ----------
 function buildEmbed(ev) {
   const fmtList = (arr) =>
-    arr.length === 0 ? '—' : arr.map((u, i) => `\`${i + 1}\` ${u.name}`).join('\n');
+    arr.length === 0 ? '—' : arr.map((u, i) => `${i + 1}. **${u.name}**`).join('\n');
 
   const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
   const acceptedHeader =
@@ -43,9 +43,7 @@ function buildEmbed(ev) {
     color: 0x8b5cf6,
     description: [
       ev.flag ? `🚩 ${ev.flag}` : null,
-      `📅 <t:${ev.timestamp}:D>`,
-      `⏰ <t:${ev.timestamp}:t>`,
-      `⏳ <t:${ev.timestamp}:R>`,
+      `📅 <t:${ev.timestamp}:D>  ⏰ <t:${ev.timestamp}:t>  ⏳ <t:${ev.timestamp}:R>`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -54,6 +52,7 @@ function buildEmbed(ev) {
       { name: `❓ Maybe (${ev.maybe.length})`, value: fmtList(ev.maybe), inline: true },
       { name: `❌ Declined (${ev.declined.length})`, value: fmtList(ev.declined), inline: true },
     ],
+    footer: { text: `Erstellt von ${ev.creator}` },
   };
 }
 
@@ -86,12 +85,16 @@ async function handleCreateEvent(interaction, store) {
     });
   }
 
+  const creator =
+    interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
+
   const eventId = interaction.id;
   const ev = {
     title: opts.titel,
     flag: opts.info || '',
     limit: opts.limit,
     timestamp: Math.floor(date.getTime() / 1000),
+    creator,
     accepted: [],
     maybe: [],
     declined: [],

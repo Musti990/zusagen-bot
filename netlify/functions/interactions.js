@@ -376,6 +376,87 @@ async function handlePositionButton(interaction) {
   });
 }
 
+// ---------- Rollen-Auswahl (/rolle) ----------
+const GENERAL_ROLES = ['Tester', 'Aushilfe'];
+
+function buildRoleComponents() {
+  const rows = [];
+  for (let i = 0; i < GENERAL_ROLES.length; i += 5) {
+    const chunk = GENERAL_ROLES.slice(i, i + 5);
+    rows.push({
+      type: 1,
+      components: chunk.map((p) => ({ type: 2, style: 2, label: p, custom_id: `genrole:${p}` })),
+    });
+  }
+  return rows;
+}
+
+async function handleRoleCommand() {
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: 'Rollenwahl',
+          description: 'Klick auf eine Rolle, um sie zu erhalten. Nochmal klicken entfernt sie wieder.',
+          color: 0x8b5cf6,
+        },
+      ],
+      components: buildRoleComponents(),
+    },
+  });
+}
+
+async function handleRoleButton(interaction) {
+  const roleName = interaction.data.custom_id.split(':')[1];
+  const guildId = interaction.guild_id;
+  const userId = interaction.member?.user?.id;
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
+
+  const rolesRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader });
+  if (!rolesRes.ok) {
+    return json(200, { type: 4, data: { content: 'Konnte Rollen nicht laden.', flags: 64 } });
+  }
+  const roles = await rolesRes.json();
+  const role = roles.find((r) => r.name === roleName);
+
+  if (!role) {
+    return json(200, {
+      type: 4,
+      data: {
+        content: `Es gibt noch keine Rolle namens "${roleName}" auf diesem Server. Bitte zuerst eine Rolle mit exakt diesem Namen anlegen.`,
+        flags: 64,
+      },
+    });
+  }
+
+  const hasRole = (interaction.member?.roles || []).includes(role.id);
+  const method = hasRole ? 'DELETE' : 'PUT';
+
+  const res = await fetch(
+    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${role.id}`,
+    { method, headers: authHeader }
+  );
+
+  if (!res.ok) {
+    return json(200, {
+      type: 4,
+      data: {
+        content: `Konnte Rolle nicht ${hasRole ? 'entfernen' : 'vergeben'}. Prüfe, ob die Bot-Rolle über "${roleName}" in der Rollen-Reihenfolge steht und der Bot "Rollen verwalten" darf.`,
+        flags: 64,
+      },
+    });
+  }
+
+  return json(200, {
+    type: 4,
+    data: {
+      content: hasRole ? `❌ Rolle **${roleName}** entfernt.` : `✅ Rolle **${roleName}** zugewiesen.`,
+      flags: 64,
+    },
+  });
+}
+
 // ---------- Handler ----------
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'method not allowed' });
@@ -403,9 +484,16 @@ exports.handler = async (event) => {
     return handlePositionCommand();
   }
 
+  if (interaction.type === 2 && interaction.data?.name === 'rolle') {
+    return handleRoleCommand();
+  }
+
   if (interaction.type === 3) {
     if (interaction.data.custom_id.startsWith('posrole:')) {
       return handlePositionButton(interaction);
+    }
+    if (interaction.data.custom_id.startsWith('genrole:')) {
+      return handleRoleButton(interaction);
     }
     return handleButton(interaction, store);
   }

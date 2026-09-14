@@ -1,0 +1,16 @@
+{
+  "name": "netlify-event-bot",
+  "version": "1.0.0",
+  "description": "Discord Event-/RSVP-Bot über Netlify Functions (HTTP Interactions statt Gateway)",
+  "scripts": {
+    "register": "node scripts/register-commands.js"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^7.3.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5",
+    "node-fetch": "^2.7.0"
+  }
+}

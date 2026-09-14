@@ -29,10 +29,30 @@ function json(statusCode, data) {
   };
 }
 
+// ---------- Höchste Rolle einer Person ermitteln ----------
+async function getTopRoleName(guildId, roleIds) {
+  if (!guildId || !roleIds || roleIds.length === 0) return null;
+  try {
+    const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, {
+      headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}` },
+    });
+    if (!res.ok) return null;
+    const roles = await res.json();
+    const memberRoles = roles
+      .filter((r) => roleIds.includes(r.id) && r.name !== '@everyone')
+      .sort((a, b) => b.position - a.position);
+    return memberRoles.length > 0 ? memberRoles[0].name : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- Discord-Embed & Buttons bauen ----------
 function buildEmbed(ev) {
   const fmtList = (arr) =>
-    arr.length === 0 ? '—' : arr.map((u, i) => `${i + 1}. **${u.name}**`).join('\n');
+    arr.length === 0
+      ? '—'
+      : arr.map((u, i) => `${i + 1}. **${u.name}**${u.role ? ` — ${u.role}` : ''}`).join('\n');
 
   const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
   const acceptedHeader =
@@ -110,71 +130,4 @@ async function handleCreateEvent(interaction, store) {
 
 // ---------- Button-Klick ----------
 async function handleButton(interaction, store) {
-  const [prefix, action, eventId] = interaction.data.custom_id.split(':');
-  if (prefix !== 'rsvp') return json(400, { error: 'unknown component' });
-
-  const ev = await store.get(eventId, { type: 'json' });
-  if (!ev) {
-    return json(200, {
-      type: 4,
-      data: { content: 'Dieses Event ist nicht mehr verfügbar.', flags: 64 },
-    });
-  }
-
-  const member = interaction.member;
-  const user = {
-    id: member?.user?.id || interaction.user?.id,
-    name: member?.nick || member?.user?.username || interaction.user?.username || 'Unbekannt',
-  };
-
-  const inAccepted = ev.accepted.some((u) => u.id === user.id);
-  const inMaybe = ev.maybe.some((u) => u.id === user.id);
-  const inDeclined = ev.declined.some((u) => u.id === user.id);
-
-  ev.accepted = ev.accepted.filter((u) => u.id !== user.id);
-  ev.maybe = ev.maybe.filter((u) => u.id !== user.id);
-  ev.declined = ev.declined.filter((u) => u.id !== user.id);
-
-  const wasAlreadySelected =
-    (action === 'accept' && inAccepted) ||
-    (action === 'maybe' && inMaybe) ||
-    (action === 'decline' && inDeclined);
-
-  if (!wasAlreadySelected) {
-    const list = action === 'accept' ? ev.accepted : action === 'maybe' ? ev.maybe : ev.declined;
-    list.push(user);
-  }
-
-  await store.setJSON(eventId, ev);
-
-  return json(200, {
-    type: 7, // UPDATE_MESSAGE
-    data: { embeds: [buildEmbed(ev)], components: buildComponents(eventId) },
-  });
-}
-
-// ---------- Handler ----------
-exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') return json(405, { error: 'method not allowed' });
-  if (!verifySignature(event)) return json(401, { error: 'invalid request signature' });
-
-  const interaction = JSON.parse(event.body);
-
-  if (interaction.type === 1) return json(200, { type: 1 }); // PING -> PONG
-
-  const store = getStore({
-    name: 'rsvp-events',
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_BLOBS_TOKEN,
-  });
-
-  if (interaction.type === 2 && interaction.data?.name === 'event') {
-    return handleCreateEvent(interaction, store);
-  }
-
-  if (interaction.type === 3) {
-    return handleButton(interaction, store);
-  }
-
-  return json(400, { error: 'unhandled interaction type' });
-};
+  const [prefix, action,

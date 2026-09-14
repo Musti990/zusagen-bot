@@ -159,7 +159,11 @@ exports.handler = async (event) => {
 
   if (interaction.type === 1) return json(200, { type: 1 }); // PING -> PONG
 
-  const store = getStore('rsvp-events');
+  const store = getStore({
+    name: 'rsvp-events',
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_BLOBS_TOKEN,
+  });
 
   if (interaction.type === 2 && interaction.data?.name === 'event') {
     return handleCreateEvent(interaction, store);

@@ -28,7 +28,11 @@ exports.handler = async () => {
     },
     {
       name: 'position',
-      description: 'Postet ein dauerhaftes Panel zur Positionswahl (ZDM, IV, LM, RM, ZOM, ST, TW)',
+      description: 'Postet ein dauerhaftes Panel zur Positionswahl (ZDM, ZIV, LIV, RIV, LM, RM, ZOM, ST, TW)',
+    },
+    {
+      name: 'rolle',
+      description: 'Postet ein dauerhaftes Panel zur Rollenwahl (Tester, Aushilfe)',
     },
   ];
 

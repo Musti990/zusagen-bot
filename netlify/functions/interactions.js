@@ -29,6 +29,9 @@ function json(statusCode, data) {
   };
 }
 
+// Rollen, die in Bot-Anzeigen nie als "Top-Rolle" berücksichtigt werden sollen
+const EXCLUDED_ROLES = ['Head VM', '@everyone'];
+
 // ---------- Höchste Rolle einer Person ermitteln ----------
 async function getTopRoleName(guildId, roleIds) {
   if (!guildId || !roleIds || roleIds.length === 0) return null;
@@ -39,7 +42,7 @@ async function getTopRoleName(guildId, roleIds) {
     if (!res.ok) return null;
     const roles = await res.json();
     const memberRoles = roles
-      .filter((r) => roleIds.includes(r.id) && r.name !== '@everyone')
+      .filter((r) => roleIds.includes(r.id) && !EXCLUDED_ROLES.includes(r.name))
       .sort((a, b) => b.position - a.position);
     return memberRoles.length > 0 ? memberRoles[0].name : null;
   } catch {
@@ -75,7 +78,7 @@ async function getMissingFields(guildId, respondedIds, allowedRoleNames) {
 
       const memberRoles = (m.roles || [])
         .map((id) => roleById[id])
-        .filter((r) => r && r.name !== '@everyone')
+        .filter((r) => r && !EXCLUDED_ROLES.includes(r.name))
         .sort((a, b) => b.position - a.position);
       const topRole = memberRoles.length > 0 ? memberRoles[0].name : 'Ohne Rolle';
       const name = m.nick || m.user?.username || 'Unbekannt';

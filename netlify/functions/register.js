@@ -22,6 +22,16 @@ exports.handler = async () => {
         { name: 'info', description: 'Zusatzinfo', type: 3, required: false },
         { name: 'beschreibung', description: 'Ausführlichere Beschreibung des Events', type: 3, required: false },
         { name: 'bild', description: 'Bild für das Event', type: 11, required: false },
+        {
+          name: 'mannschaft',
+          description: 'Für welche Mannschaft?',
+          type: 3,
+          required: false,
+          choices: [
+            { name: '1. Mannschaft', value: '1 Mannschaft' },
+            { name: '2. Mannschaft', value: '2 Mannschaft' },
+          ],
+        },
       ],
     },
     {

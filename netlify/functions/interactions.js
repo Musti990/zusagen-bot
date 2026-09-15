@@ -48,7 +48,7 @@ async function getTopRoleName(guildId, roleIds) {
 }
 
 // ---------- Wer hat noch nicht abgestimmt? ----------
-async function getMissingFields(guildId, respondedIds) {
+async function getMissingFields(guildId, respondedIds, allowedRoleNames) {
   const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
 
   try {
@@ -68,6 +68,10 @@ async function getMissingFields(guildId, respondedIds) {
     for (const m of members) {
       if (m.user?.bot) continue;
       if (respondedIds.has(m.user.id)) continue;
+
+      const memberRoleNames = (m.roles || []).map((id) => roleById[id]?.name).filter(Boolean);
+
+      if (allowedRoleNames && !memberRoleNames.some((n) => allowedRoleNames.includes(n))) continue;
 
       const memberRoles = (m.roles || [])
         .map((id) => roleById[id])
@@ -111,7 +115,9 @@ async function buildEmbed(ev) {
 
   if (ev.guildId) {
     const respondedIds = new Set([...ev.accepted, ...ev.maybe, ...ev.declined].map((u) => u.id));
-    const missingFields = await getMissingFields(ev.guildId, respondedIds);
+    const allowedRoleNames =
+      ev.team === '2 Mannschaft' ? ['2 Mannschaft', 'Tester'] : ev.team === '1 Mannschaft' ? ['1 Mannschaft'] : null;
+    const missingFields = await getMissingFields(ev.guildId, respondedIds, allowedRoleNames);
     fields.push(...missingFields);
   }
 
@@ -119,6 +125,7 @@ async function buildEmbed(ev) {
     title: ev.title,
     color: 0x000000,
     description: [
+      ev.team ? `🏆 ${ev.team}` : null,
       ev.flag ? `🚩 ${ev.flag}` : null,
       ev.beschreibung ? ev.beschreibung : null,
       `📅 <t:${ev.timestamp}:D>  ⏰ <t:${ev.timestamp}:t>  ⏳ <t:${ev.timestamp}:R>`,
@@ -175,6 +182,7 @@ async function handleCreateEvent(interaction, store) {
     creator,
     guildId: interaction.guild_id,
     imageUrl,
+    team: opts.mannschaft || null,
     accepted: [],
     maybe: [],
     declined: [],

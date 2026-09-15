@@ -117,7 +117,7 @@ async function buildEmbed(ev) {
 
   return {
     title: ev.title,
-    color: 0x8b5cf6,
+    color: 0x000000,
     description: [
       ev.flag ? `🚩 ${ev.flag}` : null,
       ev.beschreibung ? ev.beschreibung : null,
@@ -126,6 +126,7 @@ async function buildEmbed(ev) {
       .filter(Boolean)
       .join('\n'),
     fields,
+    image: ev.imageUrl ? { url: ev.imageUrl } : undefined,
     footer: { text: `Erstellt von ${ev.creator}` },
   };
 }
@@ -162,6 +163,8 @@ async function handleCreateEvent(interaction, store) {
   const creator =
     interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
 
+  const imageUrl = opts.bild ? interaction.data.resolved?.attachments?.[opts.bild]?.url || null : null;
+
   const eventId = interaction.id;
   const ev = {
     title: opts.titel,
@@ -171,6 +174,7 @@ async function handleCreateEvent(interaction, store) {
     timestamp: Math.floor(date.getTime() / 1000),
     creator,
     guildId: interaction.guild_id,
+    imageUrl,
     accepted: [],
     maybe: [],
     declined: [],
@@ -289,7 +293,7 @@ async function handleMembersCommand(interaction) {
       embeds: [
         {
           title: 'Mitgliederübersicht',
-          color: 0x8b5cf6,
+          color: 0x000000,
           fields,
         },
       ],
@@ -395,7 +399,7 @@ async function handleRoleCommand() {
         {
           title: 'Rollenwahl',
           description: 'Klick auf eine Rolle, um sie zu erhalten. Nochmal klicken entfernt sie wieder.',
-          color: 0x8b5cf6,
+          color: 0x000000,
         },
       ],
       components: buildRoleComponents(),

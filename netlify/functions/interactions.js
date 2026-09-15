@@ -325,7 +325,6 @@ async function handlePositionCommand(interaction) {
     type: 4,
     data: {
       content: `Wähle deine ${label}:`,
-      flags: 64,
       components: buildPositionButtons(prefix),
     },
   });

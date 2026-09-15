@@ -120,6 +120,7 @@ async function buildEmbed(ev) {
     color: 0x8b5cf6,
     description: [
       ev.flag ? `🚩 ${ev.flag}` : null,
+      ev.beschreibung ? ev.beschreibung : null,
       `📅 <t:${ev.timestamp}:D>  ⏰ <t:${ev.timestamp}:t>  ⏳ <t:${ev.timestamp}:R>`,
     ]
       .filter(Boolean)
@@ -165,6 +166,7 @@ async function handleCreateEvent(interaction, store) {
   const ev = {
     title: opts.titel,
     flag: opts.info || '',
+    beschreibung: opts.beschreibung || '',
     limit: opts.limit,
     timestamp: Math.floor(date.getTime() / 1000),
     creator,
@@ -304,7 +306,7 @@ function buildPositionComponents() {
     const chunk = POSITIONS.slice(i, i + 5);
     rows.push({
       type: 1,
-      components: chunk.map((p) => ({ type: 2, style: 2, label: p, custom_id: `posrole:${p}` })),
+      components: chunk.map((p) => ({ type: 2, style: 1, label: p, custom_id: `posrole:${p}` })),
     });
   }
   return rows;

@@ -297,73 +297,70 @@ async function handleMembersCommand(interaction) {
   });
 }
 
-// ---------- Positions-Auswahl (/position) ----------
+// ---------- Positions-Auswahl im Nickname (/position hp / /position np) ----------
 const POSITIONS = ['ZDM', 'ZIV', 'LIV', 'RIV', 'LM', 'RM', 'ZOM', 'ST', 'TW'];
 
-function buildPositionComponents() {
+function buildPositionButtons(prefix) {
   const rows = [];
   for (let i = 0; i < POSITIONS.length; i += 5) {
     const chunk = POSITIONS.slice(i, i + 5);
     rows.push({
       type: 1,
-      components: chunk.map((p) => ({ type: 2, style: 1, label: p, custom_id: `posrole:${p}` })),
+      components: chunk.map((p) => ({ type: 2, style: 1, label: p, custom_id: `posnick:${prefix}:${p}` })),
     });
   }
   return rows;
 }
 
-async function handlePositionCommand() {
+async function handlePositionCommand(interaction) {
+  const sub = interaction.data.options?.[0]?.name; // 'hp' oder 'np'
+  const prefix = sub === 'np' ? 'NP' : 'HP';
+  const label = sub === 'np' ? 'Nebenposition' : 'Hauptposition';
+
   return json(200, {
     type: 4,
     data: {
-      embeds: [
-        {
-          title: 'Positionswahl',
-          description: 'Klick auf deine Position, um die passende Rolle zu erhalten. Nochmal klicken entfernt sie wieder.',
-          color: 0x8b5cf6,
-        },
-      ],
-      components: buildPositionComponents(),
+      content: `Wähle deine ${label}:`,
+      flags: 64,
+      components: buildPositionButtons(prefix),
     },
   });
 }
 
-async function handlePositionButton(interaction) {
-  const position = interaction.data.custom_id.split(':')[1];
+async function handlePositionNickButton(interaction) {
+  const [, prefix, position] = interaction.data.custom_id.split(':'); // posnick:HP:ZDM
   const guildId = interaction.guild_id;
   const userId = interaction.member?.user?.id;
-  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}`, 'Content-Type': 'application/json' };
 
-  const rolesRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader });
-  if (!rolesRes.ok) {
-    return json(200, { type: 4, data: { content: 'Konnte Rollen nicht laden.', flags: 64 } });
+  const currentNick = interaction.member?.nick || interaction.member?.user?.username || 'Unbekannt';
+  const baseName = currentNick.split('|')[0].trim();
+
+  const tags = {};
+  const tagRegex = /(HP|NP):\s*([A-ZÄÖÜ]+)/g;
+  let match;
+  while ((match = tagRegex.exec(currentNick)) !== null) {
+    tags[match[1]] = match[2];
   }
-  const roles = await rolesRes.json();
-  const role = roles.find((r) => r.name === position);
+  tags[prefix] = position;
 
-  if (!role) {
-    return json(200, {
-      type: 4,
-      data: {
-        content: `Es gibt noch keine Rolle namens "${position}" auf diesem Server. Bitte zuerst eine Rolle mit exakt diesem Namen anlegen.`,
-        flags: 64,
-      },
-    });
-  }
+  const parts = [baseName];
+  if (tags.HP) parts.push(`HP:${tags.HP}`);
+  if (tags.NP) parts.push(`NP: ${tags.NP}`);
+  let newNick = parts.join(' | ');
+  if (newNick.length > 32) newNick = newNick.slice(0, 32);
 
-  const hasRole = (interaction.member?.roles || []).includes(role.id);
-  const method = hasRole ? 'DELETE' : 'PUT';
-
-  const res = await fetch(
-    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${role.id}`,
-    { method, headers: authHeader }
-  );
+  const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
+    method: 'PATCH',
+    headers: authHeader,
+    body: JSON.stringify({ nick: newNick }),
+  });
 
   if (!res.ok) {
     return json(200, {
       type: 4,
       data: {
-        content: `Konnte Rolle nicht ${hasRole ? 'entfernen' : 'vergeben'}. Prüfe, ob die Bot-Rolle über "${position}" in der Rollen-Reihenfolge steht und der Bot "Rollen verwalten" darf.`,
+        content: `Konnte Nickname nicht ändern. Prüfe, ob der Bot "Nicknamen verwalten" darf und über dir in der Rollen-Reihenfolge steht. Server-Owner können per Bot generell nicht umbenannt werden (Discord-Beschränkung).`,
         flags: 64,
       },
     });
@@ -371,10 +368,7 @@ async function handlePositionButton(interaction) {
 
   return json(200, {
     type: 4,
-    data: {
-      content: hasRole ? `❌ Rolle **${position}** entfernt.` : `✅ Rolle **${position}** zugewiesen.`,
-      flags: 64,
-    },
+    data: { content: `✅ Nickname aktualisiert: **${newNick}**`, flags: 64 },
   });
 }
 
@@ -483,7 +477,7 @@ exports.handler = async (event) => {
   }
 
   if (interaction.type === 2 && interaction.data?.name === 'position') {
-    return handlePositionCommand();
+    return handlePositionCommand(interaction);
   }
 
   if (interaction.type === 2 && interaction.data?.name === 'rolle') {
@@ -491,8 +485,8 @@ exports.handler = async (event) => {
   }
 
   if (interaction.type === 3) {
-    if (interaction.data.custom_id.startsWith('posrole:')) {
-      return handlePositionButton(interaction);
+    if (interaction.data.custom_id.startsWith('posnick:')) {
+      return handlePositionNickButton(interaction);
     }
     if (interaction.data.custom_id.startsWith('genrole:')) {
       return handleRoleButton(interaction);

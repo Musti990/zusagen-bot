@@ -29,7 +29,11 @@ exports.handler = async () => {
     },
     {
       name: 'position',
-      description: 'Postet ein dauerhaftes Panel zur Positionswahl (ZDM, ZIV, LIV, RIV, LM, RM, ZOM, ST, TW)',
+      description: 'Positionsauswahl (schreibt sie in deinen Nickname)',
+      options: [
+        { name: 'hp', description: 'Hauptposition festlegen', type: 1 },
+        { name: 'np', description: 'Nebenposition festlegen', type: 1 },
+      ],
     },
     {
       name: 'rolle',

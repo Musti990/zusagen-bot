@@ -20,6 +20,7 @@ exports.handler = async () => {
         { name: 'uhrzeit', description: 'Uhrzeit HH:MM', type: 3, required: true },
         { name: 'limit', description: 'Maximale Anzahl Zusagen', type: 4, required: true },
         { name: 'info', description: 'Zusatzinfo', type: 3, required: false },
+        { name: 'beschreibung', description: 'Ausführlichere Beschreibung des Events', type: 3, required: false },
       ],
     },
     {

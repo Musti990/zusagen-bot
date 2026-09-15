@@ -117,7 +117,7 @@ async function buildEmbed(ev) {
 
   return {
     title: ev.title,
-    color: 0x8b5cf6,
+    color: 0x000000,
     description: [
       ev.flag ? `🚩 ${ev.flag}` : null,
       ev.beschreibung ? ev.beschreibung : null,
@@ -126,6 +126,7 @@ async function buildEmbed(ev) {
       .filter(Boolean)
       .join('\n'),
     fields,
+    image: ev.imageUrl ? { url: ev.imageUrl } : undefined,
     footer: { text: `Erstellt von ${ev.creator}` },
   };
 }
@@ -135,9 +136,9 @@ function buildComponents(eventId) {
     {
       type: 1, // Action Row
       components: [
-        { type: 2, style: 3, label: 'Accepted', emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
-        { type: 2, style: 1, label: 'Maybe', emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` },
-        { type: 2, style: 4, label: 'Declined', emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
+        { type: 2, style: 2, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
+        { type: 2, style: 2, emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` },
+        { type: 2, style: 2, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
       ],
     },
   ];
@@ -162,6 +163,8 @@ async function handleCreateEvent(interaction, store) {
   const creator =
     interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
 
+  const imageUrl = opts.bild ? interaction.data.resolved?.attachments?.[opts.bild]?.url || null : null;
+
   const eventId = interaction.id;
   const ev = {
     title: opts.titel,
@@ -171,6 +174,7 @@ async function handleCreateEvent(interaction, store) {
     timestamp: Math.floor(date.getTime() / 1000),
     creator,
     guildId: interaction.guild_id,
+    imageUrl,
     accepted: [],
     maybe: [],
     declined: [],
@@ -289,7 +293,7 @@ async function handleMembersCommand(interaction) {
       embeds: [
         {
           title: 'Mitgliederübersicht',
-          color: 0x8b5cf6,
+          color: 0x000000,
           fields,
         },
       ],
@@ -336,17 +340,24 @@ async function handlePositionNickButton(interaction) {
   const currentNick = interaction.member?.nick || interaction.member?.user?.username || 'Unbekannt';
   const baseName = currentNick.split('|')[0].trim();
 
-  const tags = {};
-  const tagRegex = /(HP|NP):\s*([A-ZÄÖÜ]+)/g;
+  const tags = { HP: [], NP: [] };
+  const tagRegex = /(HP|NP):\s*([A-ZÄÖÜ,]+)/g;
   let match;
   while ((match = tagRegex.exec(currentNick)) !== null) {
-    tags[match[1]] = match[2];
+    tags[match[1]] = match[2].split(',').filter(Boolean);
   }
-  tags[prefix] = position;
+
+  const list = tags[prefix];
+  const idx = list.indexOf(position);
+  if (idx === -1) {
+    list.push(position);
+  } else {
+    list.splice(idx, 1);
+  }
 
   const parts = [baseName];
-  if (tags.HP) parts.push(`HP:${tags.HP}`);
-  if (tags.NP) parts.push(`NP: ${tags.NP}`);
+  if (tags.HP.length > 0) parts.push(`HP:${tags.HP.join(',')}`);
+  if (tags.NP.length > 0) parts.push(`NP: ${tags.NP.join(',')}`);
   let newNick = parts.join(' | ');
   if (newNick.length > 32) newNick = newNick.slice(0, 32);
 
@@ -395,7 +406,7 @@ async function handleRoleCommand() {
         {
           title: 'Rollenwahl',
           description: 'Klick auf eine Rolle, um sie zu erhalten. Nochmal klicken entfernt sie wieder.',
-          color: 0x8b5cf6,
+          color: 0x000000,
         },
       ],
       components: buildRoleComponents(),

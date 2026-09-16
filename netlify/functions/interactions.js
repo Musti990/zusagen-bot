@@ -32,6 +32,139 @@ function json(statusCode, data) {
 // Rollen, die in Bot-Anzeigen nie als "Top-Rolle" berücksichtigt werden sollen
 const EXCLUDED_ROLES = ['Head VM', '@everyone'];
 
+// ---------- Quiz-Fragen (hier selbst bearbeiten) ----------
+// "correct" ist der Index (0-3) der richtigen Antwort in "choices"
+const QUIZ_QUESTIONS = [
+  { question: 'Wie viele Spieler stehen bei einer Fußballmannschaft auf dem Feld?', choices: ['9', '10', '11', '12'], correct: 2 },
+  { question: 'Wie lange dauert eine reguläre Fußball-Halbzeit?', choices: ['40 Minuten', '45 Minuten', '50 Minuten', '35 Minuten'], correct: 1 },
+  { question: 'Welche Farbe zeigt der Schiedsrichter bei einem Platzverweis?', choices: ['Gelb', 'Grün', 'Rot', 'Blau'], correct: 2 },
+  { question: 'Wie viele Weltmeisterschaften hat Deutschland gewonnen (Stand 2014)?', choices: ['3', '4', '5', '2'], correct: 1 },
+  { question: 'Was passiert bei zwei gelben Karten für denselben Spieler?', choices: ['Nichts', 'Freistoß', 'Gelb-Rot (Platzverweis)', 'Elfmeter'], correct: 2 },
+  { question: 'Wie nennt man ein Tor aus der eigenen Hälfte direkt ins gegnerische Tor?', choices: ['Elfmeter', 'Abseitstor', 'Fernschuss-Tor', 'Traumtor'], correct: 3 },
+  { question: 'Wie viele Auswechslungen sind in einem regulären Spiel meist erlaubt?', choices: ['3', '5', '7', 'Unbegrenzt'], correct: 1 },
+  { question: 'Was zeigt die Abseitsregel an?', choices: ['Zu viele Spieler auf dem Feld', 'Foulspiel', 'Position eines Angreifers ohne genug Verteidiger vor sich', 'Zeitüberschreitung'], correct: 2 },
+];
+
+// ---------- /quiz ----------
+function buildQuizAnswerComponents(quizId, qIndex, choices) {
+  const answerRow = {
+    type: 1,
+    components: choices.map((c, i) => ({
+      type: 2,
+      style: 1,
+      label: c,
+      custom_id: `quiz:answer:${quizId}:${i}`,
+    })),
+  };
+  const nextRow = {
+    type: 1,
+    components: [{ type: 2, style: 2, label: '➡️ Nächste Frage', custom_id: `quiz:next:${quizId}` }],
+  };
+  return [answerRow, nextRow];
+}
+
+function buildQuizQuestionEmbed(qIndex) {
+  const q = QUIZ_QUESTIONS[qIndex];
+  return {
+    title: `Quiz — Frage ${qIndex + 1}/${QUIZ_QUESTIONS.length}`,
+    description: q.question,
+    color: 0x000000,
+  };
+}
+
+function buildQuizResultEmbed(scores) {
+  const ranked = Object.values(scores).sort((a, b) => b.points - a.points);
+  const value =
+    ranked.length === 0
+      ? 'Niemand hat mitgemacht.'
+      : ranked.map((s, i) => `${i + 1}. **${s.name}** — ${s.points} Punkt${s.points === 1 ? '' : 'e'}`).join('\n');
+
+  return {
+    title: '🏆 Quiz beendet — Rangliste',
+    description: value,
+    color: 0x000000,
+  };
+}
+
+async function handleQuizStart(interaction, quizStore) {
+  const quizId = interaction.id;
+  const session = { qIndex: 0, scores: {}, answered: {} };
+  await quizStore.setJSON(quizId, session);
+
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [buildQuizQuestionEmbed(0)],
+      components: buildQuizAnswerComponents(quizId, 0, QUIZ_QUESTIONS[0].choices),
+    },
+  });
+}
+
+async function handleQuizAnswer(interaction, quizStore) {
+  const [, , quizId, choiceIndexStr] = interaction.data.custom_id.split(':');
+  const choiceIndex = Number(choiceIndexStr);
+
+  const session = await quizStore.get(quizId, { type: 'json' });
+  if (!session) {
+    return json(200, { type: 4, data: { content: 'Dieses Quiz ist nicht mehr aktiv.', flags: 64 } });
+  }
+
+  const userId = interaction.member?.user?.id || interaction.user?.id;
+  const name =
+    interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
+
+  if (session.answered[userId]) {
+    return json(200, { type: 4, data: { content: 'Du hast diese Frage schon beantwortet.', flags: 64 } });
+  }
+
+  const q = QUIZ_QUESTIONS[session.qIndex];
+  const isCorrect = choiceIndex === q.correct;
+
+  session.answered[userId] = true;
+  if (!session.scores[userId]) session.scores[userId] = { name, points: 0 };
+  if (isCorrect) session.scores[userId].points += 1;
+
+  await quizStore.setJSON(quizId, session);
+
+  return json(200, {
+    type: 4,
+    data: {
+      content: isCorrect ? '✅ Richtig!' : `❌ Falsch! Richtige Antwort: **${q.choices[q.correct]}**`,
+      flags: 64,
+    },
+  });
+}
+
+async function handleQuizNext(interaction, quizStore) {
+  const [, , quizId] = interaction.data.custom_id.split(':');
+
+  const session = await quizStore.get(quizId, { type: 'json' });
+  if (!session) {
+    return json(200, { type: 4, data: { content: 'Dieses Quiz ist nicht mehr aktiv.', flags: 64 } });
+  }
+
+  session.qIndex += 1;
+  session.answered = {};
+
+  if (session.qIndex >= QUIZ_QUESTIONS.length) {
+    await quizStore.setJSON(quizId, session);
+    return json(200, {
+      type: 7,
+      data: { embeds: [buildQuizResultEmbed(session.scores)], components: [] },
+    });
+  }
+
+  await quizStore.setJSON(quizId, session);
+
+  return json(200, {
+    type: 7,
+    data: {
+      embeds: [buildQuizQuestionEmbed(session.qIndex)],
+      components: buildQuizAnswerComponents(quizId, session.qIndex, QUIZ_QUESTIONS[session.qIndex].choices),
+    },
+  });
+}
+
 // ---------- Höchste Rolle einer Person ermitteln ----------
 async function getTopRoleName(guildId, roleIds) {
   if (!guildId || !roleIds || roleIds.length === 0) return null;
@@ -402,7 +535,7 @@ function buildRoleComponents() {
     const chunk = GENERAL_ROLES.slice(i, i + 5);
     rows.push({
       type: 1,
-      components: chunk.map((p) => ({ type: 2, style: 2, label: p, custom_id: `genrole:${p}` })),
+      components: chunk.map((p) => ({ type: 2, style: 1, label: p, custom_id: `genrole:${p}` })),
     });
   }
   return rows;
@@ -505,12 +638,34 @@ exports.handler = async (event) => {
     return handleRoleCommand();
   }
 
+  if (interaction.type === 2 && interaction.data?.name === 'quiz') {
+    const quizStore = getStore({
+      name: 'quiz-sessions',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_BLOBS_TOKEN,
+    });
+    return handleQuizStart(interaction, quizStore);
+  }
+
   if (interaction.type === 3) {
     if (interaction.data.custom_id.startsWith('posnick:')) {
       return handlePositionNickButton(interaction);
     }
     if (interaction.data.custom_id.startsWith('genrole:')) {
       return handleRoleButton(interaction);
+    }
+    if (interaction.data.custom_id.startsWith('quiz:')) {
+      const quizStore = getStore({
+        name: 'quiz-sessions',
+        siteID: process.env.NETLIFY_SITE_ID,
+        token: process.env.NETLIFY_BLOBS_TOKEN,
+      });
+      if (interaction.data.custom_id.startsWith('quiz:answer:')) {
+        return handleQuizAnswer(interaction, quizStore);
+      }
+      if (interaction.data.custom_id.startsWith('quiz:next:')) {
+        return handleQuizNext(interaction, quizStore);
+      }
     }
     return handleButton(interaction, store);
   }

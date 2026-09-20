@@ -30,7 +30,7 @@ function json(statusCode, data) {
 }
 
 // Rollen, die in Bot-Anzeigen nie als "Top-Rolle" berücksichtigt werden sollen
-const EXCLUDED_ROLES = ['Head VM', 'Owner', '@everyone'];
+const EXCLUDED_ROLES = ['Head VM', 'Owner', 'Admin', 'ZDM', 'ZIV', 'LIV', 'RIV', 'LM', 'RM', 'ZOM', 'ST', 'TW', '@everyone'];
 
 // ---------- Quiz-Fragen (hier selbst bearbeiten) ----------
 // "correct" ist der Index (0-3) der richtigen Antwort in "choices"

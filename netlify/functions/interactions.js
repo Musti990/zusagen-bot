@@ -29,6 +29,33 @@ function json(statusCode, data) {
   };
 }
 
+// Wandelt Jahr/Monat/Tag/Stunde/Minute, gedacht als deutsche Ortszeit (Europe/Berlin,
+// inkl. automatischer Sommer-/Winterzeit-Erkennung), in einen korrekten UTC-Unix-Timestamp um.
+function berlinToUtcTimestamp(year, month, day, hour, minute) {
+  const guessUtcMs = Date.UTC(year, month - 1, day, hour, minute);
+
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Berlin',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const parts = fmt.formatToParts(new Date(guessUtcMs));
+  const map = {};
+  parts.forEach((p) => {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  });
+  // Discord/Intl geben bei Mitternacht manchmal "24" statt "00" zurück — abfangen
+  const hourNum = Number(map.hour) === 24 ? 0 : Number(map.hour);
+  const berlinGuessMs = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), hourNum, Number(map.minute));
+
+  const correctedUtcMs = 2 * guessUtcMs - berlinGuessMs;
+  return Math.floor(correctedUtcMs / 1000);
+}
+
 // Rollen, die in Bot-Anzeigen nie als "Top-Rolle" berücksichtigt werden sollen
 const EXCLUDED_ROLES = ['Head VM', 'Owner', 'Admin', 'ZDM', 'ZIV', 'LIV', 'RIV', 'LM', 'RM', 'ZOM', 'ST', 'TW', '@everyone'];
 
@@ -317,7 +344,7 @@ async function handleCreateEvent(interaction, store) {
     flag: opts.info || '',
     beschreibung: opts.beschreibung || '',
     limit: opts.limit,
-    timestamp: Math.floor(date.getTime() / 1000),
+    timestamp: berlinToUtcTimestamp(year, month, day, hour, minute),
     creator,
     guildId: interaction.guild_id,
     imageUrl,

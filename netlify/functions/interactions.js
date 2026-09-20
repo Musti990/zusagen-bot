@@ -32,6 +32,9 @@ function json(statusCode, data) {
 // Rollen, die in Bot-Anzeigen nie als "Top-Rolle" berücksichtigt werden sollen
 const EXCLUDED_ROLES = ['Head VM', 'Owner', 'Admin', 'ZDM', 'ZIV', 'LIV', 'RIV', 'LM', 'RM', 'ZOM', 'ST', 'TW', '@everyone'];
 
+// Wer eine dieser Rollen hat, wird in der "Wer fehlt"-Liste komplett übersprungen (kann aber weiterhin abstimmen)
+const FULLY_HIDDEN_FROM_MISSING = ['Head VM', 'Owner', 'Admin'];
+
 // ---------- Quiz-Fragen (hier selbst bearbeiten) ----------
 // "correct" ist der Index (0-3) der richtigen Antwort in "choices"
 const QUIZ_QUESTIONS = [
@@ -206,8 +209,8 @@ async function getMissingFields(guildId, respondedIds, allowedRoleNames) {
       if (respondedIds.has(m.user.id)) continue;
 
       const memberRoleNames = (m.roles || []).map((id) => roleById[id]?.name).filter(Boolean);
-
       if (allowedRoleNames && !memberRoleNames.some((n) => allowedRoleNames.includes(n))) continue;
+      if (memberRoleNames.some((n) => FULLY_HIDDEN_FROM_MISSING.includes(n))) continue;
 
       const memberRoles = (m.roles || [])
         .map((id) => roleById[id])

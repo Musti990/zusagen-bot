@@ -1,5 +1,6 @@
 const nacl = require('tweetnacl');
 const { getStore } = require('@netlify/blobs');
+const sharp = require('sharp');
 
 // ---------- Signatur-Prüfung (Pflicht laut Discord) ----------
 function verifySignature(event) {
@@ -224,6 +225,89 @@ async function handleRentnerCommand(interaction) {
   return json(200, {
     type: 4,
     data: { content: `<@${target.user.id}> du Rentner 👴` },
+  });
+}
+
+// ---------- /aufstellung (3-5-2, automatisch generiertes Bild) ----------
+const FORMATION_352 = {
+  TW: [50, 90],
+  LIV: [20, 72], ZIV: [50, 75], RIV: [80, 72],
+  LM: [8, 50], ZDM: [29, 53], ZM: [50, 55], ZOM: [71, 53], RM: [92, 50],
+  LS: [35, 18], RS: [65, 18],
+};
+
+function parseAufstellungInput(input) {
+  const codes = Object.keys(FORMATION_352).sort((a, b) => b.length - a.length); // längere zuerst (RIV vor RM etc. wäre egal, aber sicher ist sicher)
+  const codePattern = codes.join('|');
+  const regex = new RegExp(`(${codePattern})\\s*:\\s*([^:]*?)(?=\\s+(?:${codePattern})\\s*:|$)`, 'g');
+  const result = {};
+  let match;
+  while ((match = regex.exec(input)) !== null) {
+    const code = match[1];
+    const name = match[2].trim();
+    if (name) result[code] = name;
+  }
+  return result;
+}
+
+function buildFormationSvg(players) {
+  const W = 600;
+  const H = 900;
+  const escape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const markers = Object.entries(FORMATION_352)
+    .map(([code, [px, py]]) => {
+      const cx = (px / 100) * W;
+      const cy = (py / 100) * H;
+      const name = players[code] || code;
+      return `
+        <circle cx="${cx}" cy="${cy}" r="30" fill="#111827" stroke="#ffffff" stroke-width="3" />
+        <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#ffffff">${escape(code)}</text>
+        <text x="${cx}" y="${cy + 52}" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#ffffff" stroke="#000000" stroke-width="0.5">${escape(name)}</text>
+      `;
+    })
+    .join('');
+
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" fill="#1a7a3c" />
+    <rect x="10" y="10" width="${W - 20}" height="${H - 20}" fill="none" stroke="#ffffff" stroke-width="4" />
+    <line x1="10" y1="${H / 2}" x2="${W - 10}" y2="${H / 2}" stroke="#ffffff" stroke-width="3" />
+    <circle cx="${W / 2}" cy="${H / 2}" r="70" fill="none" stroke="#ffffff" stroke-width="3" />
+    <rect x="${W / 2 - 120}" y="10" width="240" height="120" fill="none" stroke="#ffffff" stroke-width="3" />
+    <rect x="${W / 2 - 120}" y="${H - 130}" width="240" height="120" fill="none" stroke="#ffffff" stroke-width="3" />
+    ${markers}
+  </svg>`;
+}
+
+async function handleAufstellungCommand(interaction, aufstellungStore) {
+  const opts = {};
+  for (const o of interaction.data.options || []) opts[o.name] = o.value;
+
+  const players = parseAufstellungInput(opts.spieler || '');
+  const svg = buildFormationSvg(players);
+
+  const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
+  const imageId = interaction.id;
+  await aufstellungStore.set(imageId, pngBuffer, { metadata: { contentType: 'image/png' } });
+
+  const baseUrl = `https://${process.env.URL || 'zusagen.netlify.app'}`;
+  const imageUrl = `${baseUrl}/.netlify/functions/lineup-image?id=${imageId}`;
+
+  const creator =
+    interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
+
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: opts.titel || 'Aufstellung (3-5-2)',
+          color: 0x000000,
+          image: { url: imageUrl },
+          footer: { text: `Erstellt von ${creator}` },
+        },
+      ],
+    },
   });
 }
 
@@ -711,6 +795,15 @@ exports.handler = async (event) => {
 
   if (interaction.type === 2 && interaction.data?.name === 'rentner') {
     return handleRentnerCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'aufstellung') {
+    const aufstellungStore = getStore({
+      name: 'lineup-images',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_BLOBS_TOKEN,
+    });
+    return handleAufstellungCommand(interaction, aufstellungStore);
   }
 
   if (interaction.type === 3) {

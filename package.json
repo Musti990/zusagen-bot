@@ -7,7 +7,8 @@
   },
   "dependencies": {
     "@netlify/blobs": "^7.3.0",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "sharp": "^0.33.4"
   },
   "devDependencies": {
     "dotenv": "^16.4.5",

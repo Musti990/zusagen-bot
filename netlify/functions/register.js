@@ -50,6 +50,14 @@ exports.handler = async () => {
       name: 'rolle',
       description: 'Postet ein dauerhaftes Panel zur Rollenwahl (Tester, Aushilfe)',
     },
+    {
+      name: 'quiz',
+      description: 'Startet ein Quiz mit 8 Fragen — wer die meisten Punkte hat, gewinnt',
+    },
+    {
+      name: 'rentner',
+      description: 'Postet eine Erwähnung für montelione',
+    },
   ];
 
   const url = guildId

@@ -58,6 +58,19 @@ exports.handler = async () => {
       name: 'rentner',
       description: 'Postet eine Erwähnung für montelione',
     },
+    {
+      name: 'aufstellung',
+      description: 'Erstellt ein Aufstellungsbild für die 3-5-2-Formation',
+      options: [
+        {
+          name: 'spieler',
+          description: 'z.B. "LS: Musti RS: Ivan TW: Ben LIV: ..." (Codes: TW,LIV,ZIV,RIV,LM,ZDM,ZM,ZOM,RM,LS,RS)',
+          type: 3,
+          required: true,
+        },
+        { name: 'titel', description: 'Titel (z.B. "Aufstellung Samstag")', type: 3, required: false },
+      ],
+    },
   ];
 
   const url = guildId

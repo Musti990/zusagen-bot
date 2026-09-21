@@ -228,29 +228,38 @@ async function handleRentnerCommand(interaction) {
 }
 
 // ---------- /aufstellung (3-5-2, als Text) ----------
-const FORMATION_352 = {
-  TW: [50, 90],
-  LIV: [20, 72], ZIV: [50, 75], RIV: [80, 72],
-  LM: [8, 50], ZDM: [29, 53], ZM: [50, 55], ZOM: [71, 53], RM: [92, 50],
-  LS: [35, 18], RS: [65, 18],
-};
+const POSITION_CODES = ['TW', 'LIV', 'ZIV', 'RIV', 'LM', 'RM', 'ZDM', 'ZOM', 'LS', 'RS'];
 
 function parseAufstellungInput(input) {
-  const codes = Object.keys(FORMATION_352).sort((a, b) => b.length - a.length);
+  const codes = POSITION_CODES.slice().sort((a, b) => b.length - a.length);
   const codePattern = codes.join('|');
   const regex = new RegExp(`(${codePattern})\\s*:\\s*([^:]*?)(?=\\s+(?:${codePattern})\\s*:|$)`, 'g');
-  const result = {};
+
+  const occurrences = {};
   let match;
   while ((match = regex.exec(input)) !== null) {
     const code = match[1];
     const name = match[2].trim();
-    if (name) result[code] = name;
+    if (!name) continue;
+    if (!occurrences[code]) occurrences[code] = [];
+    occurrences[code].push(name);
+  }
+
+  const result = {};
+  for (const [code, names] of Object.entries(occurrences)) {
+    if (code === 'ZDM') {
+      if (names[0]) result.ZDM = names[0];
+      if (names[1]) result.ZDM2 = names[1];
+    } else {
+      result[code] = names[0];
+    }
   }
   return result;
 }
 
 function fmtLine(players, codes) {
-  return codes.map((c) => `**${c}:** ${players[c] || '—'}`).join('   ');
+  const labelFor = (c) => (c === 'ZDM2' ? 'ZDM' : c);
+  return codes.map((c) => `**${labelFor(c)}:** ${players[c] || '—'}`).join('   ');
 }
 
 async function handleAufstellungCommand(interaction) {
@@ -270,7 +279,8 @@ async function handleAufstellungCommand(interaction) {
           color: 0x000000,
           fields: [
             { name: '🔺 Sturm', value: fmtLine(players, ['LS', 'RS']) },
-            { name: '🔸 Mittelfeld', value: fmtLine(players, ['LM', 'ZDM', 'ZM', 'ZOM', 'RM']) },
+            { name: '↔️ Flügel', value: fmtLine(players, ['LM', 'RM']) },
+            { name: '🔸 Mittelfeld', value: fmtLine(players, ['ZDM', 'ZDM2', 'ZOM']) },
             { name: '🔹 Abwehr', value: fmtLine(players, ['LIV', 'ZIV', 'RIV']) },
             { name: '🥅 Tor', value: fmtLine(players, ['TW']) },
           ],

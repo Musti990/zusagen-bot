@@ -195,6 +195,38 @@ async function handleQuizNext(interaction, quizStore) {
   });
 }
 
+// ---------- /rentner ----------
+async function handleRentnerCommand(interaction) {
+  const guildId = interaction.guild_id;
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
+
+  const membersRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+    headers: authHeader,
+  });
+  if (!membersRes.ok) {
+    return json(200, { type: 4, data: { content: 'Konnte Mitgliederliste nicht laden.', flags: 64 } });
+  }
+  const members = await membersRes.json();
+
+  const target = members.find((m) => {
+    const username = (m.user?.username || '').toLowerCase();
+    const nick = (m.nick || '').toLowerCase();
+    return username.includes('montelione') || nick.includes('montelione');
+  });
+
+  if (!target) {
+    return json(200, {
+      type: 4,
+      data: { content: 'Konnte niemanden namens "montelione" auf diesem Server finden.', flags: 64 },
+    });
+  }
+
+  return json(200, {
+    type: 4,
+    data: { content: `<@${target.user.id}> du Rentner 👴` },
+  });
+}
+
 // ---------- Höchste Rolle einer Person ermitteln ----------
 async function getTopRoleName(guildId, roleIds) {
   if (!guildId || !roleIds || roleIds.length === 0) return null;
@@ -675,6 +707,10 @@ exports.handler = async (event) => {
       token: process.env.NETLIFY_BLOBS_TOKEN,
     });
     return handleQuizStart(interaction, quizStore);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'rentner') {
+    return handleRentnerCommand(interaction);
   }
 
   if (interaction.type === 3) {

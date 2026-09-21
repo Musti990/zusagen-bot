@@ -282,7 +282,7 @@ async function handleAufstellungCommand(interaction) {
             { name: '↔️ Flügel', value: fmtLine(players, ['LM', 'RM']) },
             {
               name: '🔸 Mittelfeld',
-              value: `\`\`\`\n      ZOM: ${players.ZOM || '—'}\nZDM: ${players.ZDM || '—'}    ZDM: ${players.ZDM2 || '—'}\n\`\`\``,
+              value: `**ZDM:** ${players.ZDM || '—'}   **ZOM:** ${players.ZOM || '—'}   **ZDM:** ${players.ZDM2 || '—'}`,
             },
             { name: '🔹 Abwehr', value: fmtLine(players, ['LIV', 'ZIV', 'RIV']) },
             { name: '🥅 Tor', value: fmtLine(players, ['TW']) },

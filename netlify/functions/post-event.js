@@ -45,6 +45,7 @@ exports.handler = async (event) => {
     timestamp: berlinToUtcTimestamp(year, month, day, hour, minute),
     creator: creator || 'Website',
     guildId,
+    channelId,
     imageUrl: null,
     team: mannschaft || null,
     accepted: [],
@@ -82,12 +83,11 @@ exports.handler = async (event) => {
     if (res.ok) {
       const posted = await res.json();
       ev.imageUrl = posted.attachments?.[0]?.url || null;
+      ev.messageId = posted.id || null;
       await store.setJSON(eventId, ev);
       return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true }) };
     }
   } else {
-    await store.setJSON(eventId, ev);
-
     res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
       method: 'POST',
       headers: {
@@ -98,6 +98,9 @@ exports.handler = async (event) => {
     });
 
     if (res.ok) {
+      const posted = await res.json();
+      ev.messageId = posted.id || null;
+      await store.setJSON(eventId, ev);
       return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true }) };
     }
   }

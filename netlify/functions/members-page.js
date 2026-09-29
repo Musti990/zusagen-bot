@@ -420,7 +420,7 @@ exports.handler = async (event) => {
             statusEl.className = 'error';
           }
         } catch (e) {
-          statusEl.textContent = '❌ Netzwerkfehler beim Posten.';
+          statusEl.textContent = '❌ Fehler: ' + (e && e.message ? e.message : String(e));
           statusEl.className = 'error';
         } finally {
           postBtn.disabled = false;

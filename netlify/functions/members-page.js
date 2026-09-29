@@ -191,6 +191,13 @@ exports.handler = async (event) => {
   * { box-sizing: border-box; }
   body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #0f0f12; color: #e5e5e5; margin: 0; padding: 0; }
   header { text-align: center; padding: 2rem 1rem 1rem; }
+  .tabs { display: flex; justify-content: center; gap: 0.5rem; padding: 0 1rem 1.5rem; flex-wrap: wrap; }
+  .tab-btn { background: #17171c; color: #9ca3af; border: 1px solid #26262e; padding: 0.6rem 1.1rem; border-radius: 10px; font-size: 0.9rem; cursor: pointer; }
+  .tab-btn:hover { color: #e5e5e5; }
+  .tab-btn.active { background: #3730a3; color: #fff; border-color: #3730a3; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  #tab-event, #tab-aufstellung { max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }
   h1 { margin-bottom: 0.25rem; }
   p.sub { color: #9ca3af; margin-top: 0; }
   .layout { display: flex; gap: 1.5rem; max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; align-items: flex-start; flex-wrap: wrap; }
@@ -292,32 +299,45 @@ exports.handler = async (event) => {
     <h1>Mitgliederübersicht</h1>
     <p class="sub">Automatisch aktualisiert direkt aus Discord — Rollen, Haupt- (HP) und Nebenpositionen (NP)</p>
   </header>
-  <div class="layout">
-    <aside>
-      <h3>Nach Rolle filtern</h3>
-      ${filterButtons}
-    </aside>
-    <main>
-      <table id="members-table">
-        <thead>
-          <tr>
-            <th data-sort="name">Name <span class="arrow">↕</span></th>
-            <th data-sort="roles">Rollen <span class="arrow">↕</span></th>
-            <th data-sort="hp">Hauptposition <span class="arrow">↕</span></th>
-            <th data-sort="np">Nebenposition <span class="arrow">↕</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRows}
-        </tbody>
-      </table>
-      <p class="count-line" id="count-line">${rows.length} Mitglieder</p>
 
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="tab-members">👥 Mitglieder</button>
+    <button class="tab-btn" data-tab="tab-event">📅 Event erstellen</button>
+    <button class="tab-btn" data-tab="tab-aufstellung">⚽ Aufstellung erstellen</button>
+  </nav>
+
+  <div class="tab-panel active" id="tab-members">
+    <div class="layout">
+      <aside>
+        <h3>Nach Rolle filtern</h3>
+        ${filterButtons}
+      </aside>
+      <main>
+        <table id="members-table">
+          <thead>
+            <tr>
+              <th data-sort="name">Name <span class="arrow">↕</span></th>
+              <th data-sort="roles">Rollen <span class="arrow">↕</span></th>
+              <th data-sort="hp">Hauptposition <span class="arrow">↕</span></th>
+              <th data-sort="np">Nebenposition <span class="arrow">↕</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        <p class="count-line" id="count-line">${rows.length} Mitglieder</p>
+      </main>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-event">
       <section class="lineup-builder">
         <h2>Event erstellen (/event)</h2>
         <div class="lineup-top-row">
           <label class="top-field">
             <span>Titel *</span>
+
             <input type="text" id="ev-titel" placeholder="z.B. Ligaspiel Samstag" />
           </label>
           <label class="top-field">
@@ -361,7 +381,9 @@ exports.handler = async (event) => {
         <button id="ev-post-btn">Event in Discord posten</button>
         <p id="ev-post-status"></p>
       </section>
+  </div>
 
+  <div class="tab-panel" id="tab-aufstellung">
       <section class="lineup-builder">
         <h2>Aufstellung erstellen (3-5-2)</h2>
         <div class="lineup-top-row">
@@ -404,9 +426,22 @@ exports.handler = async (event) => {
         <button id="post-btn">In Discord posten</button>
         <p id="post-status"></p>
       </section>
-    </main>
   </div>
 
+  <script>
+    (function () {
+      const tabButtons = document.querySelectorAll('.tab-btn');
+      const tabPanels = document.querySelectorAll('.tab-panel');
+      tabButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          tabButtons.forEach((b) => b.classList.remove('active'));
+          tabPanels.forEach((p) => p.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById(btn.dataset.tab).classList.add('active');
+        });
+      });
+    })();
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script>
     (function () {

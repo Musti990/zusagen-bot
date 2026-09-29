@@ -153,6 +153,17 @@ exports.handler = async (event) => {
     }),
   ].join('');
 
+  const eventManageRows = votingEvents
+    .map((ev) => {
+      const dateLabel = ev.timestamp ? new Date(ev.timestamp * 1000).toLocaleDateString('de-DE') : '';
+      return `
+      <li data-event-id="${escapeAttr(ev.id)}">
+        <span>${escapeHtml(ev.title)}${dateLabel ? ' (' + dateLabel + ')' : ''} — ${ev.accepted.length} zugesagt</span>
+        <button class="delete-event-btn" data-event-id="${escapeAttr(ev.id)}">🗑️ Löschen</button>
+      </li>`;
+    })
+    .join('');
+
   // Zugesagt-Namen pro Event als JSON einbetten, damit die Positions-Dropdowns clientseitig
   // ohne weiteren Serverkontakt darauf gefiltert werden können.
   const eventAcceptedJson = JSON.stringify(
@@ -288,6 +299,15 @@ exports.handler = async (event) => {
   #accepted-list { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
   #accepted-list li { padding: 0.2rem 0; border-bottom: 1px solid #1f1f27; }
   #accepted-list li:last-child { border-bottom: none; }
+  .event-manage { margin-bottom: 1rem; background: #0f0f12; border: 1px solid #26262e; border-radius: 10px; padding: 0.6rem 0.9rem; }
+  .event-manage summary { cursor: pointer; font-size: 0.85rem; color: #9ca3af; }
+  .event-manage ul { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+  .event-manage li { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.4rem 0; border-bottom: 1px solid #1f1f27; font-size: 0.85rem; }
+  .event-manage li:last-child { border-bottom: none; }
+  .event-manage-empty { color: #6b7280; }
+  .delete-event-btn { background: #7f1d1d; color: #fecaca; border: none; padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.75rem; cursor: pointer; white-space: nowrap; }
+  .delete-event-btn:hover { background: #991b1b; }
+  .delete-event-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .pitch {
     position: relative;
     width: 100%;
@@ -450,6 +470,13 @@ exports.handler = async (event) => {
           <select id="event-select">${eventOptions}</select>
         </label>
 
+        <details class="event-manage">
+          <summary>Events verwalten / löschen (${votingEvents.length})</summary>
+          <ul id="event-manage-list">
+            ${eventManageRows || '<li class="event-manage-empty">Keine gespeicherten Events gefunden.</li>'}
+          </ul>
+        </details>
+
         <div class="lineup-top-row">
           <label class="top-field">
             <span>Mannschaft</span>
@@ -576,6 +603,42 @@ exports.handler = async (event) => {
   </script>
   <script>
     window.__EVENT_ACCEPTED__ = ${eventAcceptedJson};
+  </script>
+  <script>
+    (function () {
+      document.querySelectorAll('.delete-event-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const eventId = btn.dataset.eventId;
+          if (!confirm('Dieses Event wirklich löschen? Die Buttons in Discord funktionieren danach nicht mehr.')) return;
+
+          btn.disabled = true;
+          btn.textContent = '…';
+
+          try {
+            const res = await fetch('/.netlify/functions/delete-event', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ eventId }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+              const li = btn.closest('li');
+              if (li) li.remove();
+              const option = document.querySelector('#event-select option[value="' + CSS.escape(eventId) + '"]');
+              if (option) option.remove();
+            } else {
+              alert('Fehler beim Löschen: ' + (data.error || 'Unbekannt'));
+              btn.disabled = false;
+              btn.textContent = '🗑️ Löschen';
+            }
+          } catch (e) {
+            alert('Fehler beim Löschen: ' + (e && e.message ? e.message : String(e)));
+            btn.disabled = false;
+            btn.textContent = '🗑️ Löschen';
+          }
+        });
+      });
+    })();
   </script>
   <script>
     (function () {

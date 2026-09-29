@@ -377,6 +377,7 @@ async function handleCreateEvent(interaction, store) {
     timestamp: berlinToUtcTimestamp(year, month, day, hour, minute),
     creator,
     guildId: interaction.guild_id,
+    channelId: interaction.channel_id,
     imageUrl,
     team: opts.mannschaft || null,
     accepted: [],

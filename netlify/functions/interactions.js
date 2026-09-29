@@ -1,5 +1,11 @@
 const nacl = require('tweetnacl');
 const { getStore } = require('@netlify/blobs');
+const {
+  berlinToUtcTimestamp,
+  getTopRoleName,
+  buildEmbed,
+  buildComponents,
+} = require('./lib/event-core');
 
 // ---------- Signatur-Prüfung (Pflicht laut Discord) ----------
 function verifySignature(event) {
@@ -31,36 +37,13 @@ function json(statusCode, data) {
 
 // Wandelt Jahr/Monat/Tag/Stunde/Minute, gedacht als deutsche Ortszeit (Europe/Berlin,
 // inkl. automatischer Sommer-/Winterzeit-Erkennung), in einen korrekten UTC-Unix-Timestamp um.
-function berlinToUtcTimestamp(year, month, day, hour, minute) {
-  const guessUtcMs = Date.UTC(year, month - 1, day, hour, minute);
-
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Berlin',
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const parts = fmt.formatToParts(new Date(guessUtcMs));
-  const map = {};
-  parts.forEach((p) => {
-    if (p.type !== 'literal') map[p.type] = p.value;
-  });
-  // Discord/Intl geben bei Mitternacht manchmal "24" statt "00" zurück — abfangen
-  const hourNum = Number(map.hour) === 24 ? 0 : Number(map.hour);
-  const berlinGuessMs = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), hourNum, Number(map.minute));
-
-  const correctedUtcMs = 2 * guessUtcMs - berlinGuessMs;
-  return Math.floor(correctedUtcMs / 1000);
-}
+// -> jetzt in ./lib/event-core.js, hier nur noch importiert (siehe oben)
 
 // Rollen, die in Bot-Anzeigen nie als "Top-Rolle" berücksichtigt werden sollen
-const EXCLUDED_ROLES = ['Head VM', 'Owner', 'Admin', 'ZDM', 'ZIV', 'LIV', 'RIV', 'LM', 'RM', 'ZOM', 'ST', 'TW', '@everyone'];
+// -> jetzt in ./lib/event-core.js, hier nur noch importiert (siehe oben)
 
 // Wer eine dieser Rollen hat, wird in der "Wer fehlt"-Liste komplett übersprungen (kann aber weiterhin abstimmen)
-const FULLY_HIDDEN_FROM_MISSING = ['Head VM', 'Owner', 'Admin'];
+// -> jetzt in ./lib/event-core.js
 
 // ---------- Quiz-Fragen (hier selbst bearbeiten) ----------
 // "correct" ist der Index (0-3) der richtigen Antwort in "choices"
@@ -294,127 +277,75 @@ async function handleAufstellungCommand(interaction) {
   });
 }
 
-// ---------- Höchste Rolle einer Person ermitteln ----------
-async function getTopRoleName(guildId, roleIds) {
-  if (!guildId || !roleIds || roleIds.length === 0) return null;
-  try {
-    const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, {
-      headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}` },
-    });
-    if (!res.ok) return null;
-    const roles = await res.json();
-    const memberRoles = roles
-      .filter((r) => roleIds.includes(r.id) && !EXCLUDED_ROLES.includes(r.name))
-      .sort((a, b) => b.position - a.position);
-    return memberRoles.length > 0 ? memberRoles[0].name : null;
-  } catch {
-    return null;
-  }
-}
-
-// ---------- Wer hat noch nicht abgestimmt? ----------
-async function getMissingFields(guildId, respondedIds, allowedRoleNames) {
+// ---------- /aufstellungvorschlag (automatisch anhand HP-Tags im Nickname) ----------
+async function handleAufstellungVorschlagCommand(interaction) {
+  const guildId = interaction.guild_id;
   const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
 
-  try {
-    const rolesRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader });
-    if (!rolesRes.ok) return [];
-    const roles = await rolesRes.json();
-    const roleById = {};
-    roles.forEach((r) => (roleById[r.id] = r));
+  const membersRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+    headers: authHeader,
+  });
+  if (!membersRes.ok) {
+    return json(200, { type: 4, data: { content: 'Konnte Mitgliederliste nicht laden.', flags: 64 } });
+  }
+  const members = await membersRes.json();
 
-    const membersRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
-      headers: authHeader,
-    });
-    if (!membersRes.ok) return [];
-    const members = await membersRes.json();
+  let pool = members
+    .filter((m) => !m.user?.bot)
+    .map((m) => {
+      const nick = m.nick || m.user?.username || 'Unbekannt';
+      const baseName = nick.split('|')[0].trim();
+      const hpMatch = nick.match(/HP:\s*([A-ZÄÖÜ,0-9]+)/);
+      const hp = hpMatch ? hpMatch[1].split(',').filter(Boolean) : [];
+      return { id: m.user.id, name: baseName, hp };
+    })
+    .filter((p) => p.hp.length > 0);
 
-    const groups = {};
-    for (const m of members) {
-      if (m.user?.bot) continue;
-      if (respondedIds.has(m.user.id)) continue;
+  const slots = ['TW', 'LIV', 'ZIV', 'RIV', 'ZDM', 'ZDM', 'ZOM', 'LM', 'RM', 'LS', 'RS'];
+  const assigned = {};
+  let zdmCount = 0;
 
-      const memberRoleNames = (m.roles || []).map((id) => roleById[id]?.name).filter(Boolean);
-      if (allowedRoleNames && !memberRoleNames.some((n) => allowedRoleNames.includes(n))) continue;
-      if (memberRoleNames.some((n) => FULLY_HIDDEN_FROM_MISSING.includes(n))) continue;
-
-      const memberRoles = (m.roles || [])
-        .map((id) => roleById[id])
-        .filter((r) => r && !EXCLUDED_ROLES.includes(r.name))
-        .sort((a, b) => b.position - a.position);
-      const topRole = memberRoles.length > 0 ? memberRoles[0].name : 'Ohne Rolle';
-      const name = m.nick || m.user?.username || 'Unbekannt';
-      if (!groups[topRole]) groups[topRole] = [];
-      groups[topRole].push(name);
+  for (const code of slots) {
+    const idx = pool.findIndex((p) => p.hp.includes(code));
+    let name = '—';
+    if (idx !== -1) {
+      name = pool[idx].name;
+      pool.splice(idx, 1);
     }
-
-    const rolePosition = (roleName) => roles.find((r) => r.name === roleName)?.position ?? -1;
-    const sortedGroupNames = Object.keys(groups).sort((a, b) => rolePosition(b) - rolePosition(a));
-
-    return sortedGroupNames.slice(0, 20).map((roleName) => ({
-      name: `❔ ${roleName} — fehlt (${groups[roleName].length})`,
-      value: groups[roleName].map((n, i) => `${i + 1}. **${n}**`).join('\n') || '—',
-      inline: true,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-// ---------- Discord-Embed & Buttons bauen ----------
-async function buildEmbed(ev) {
-  const fmtList = (arr) =>
-    arr.length === 0
-      ? '—'
-      : arr.map((u, i) => `${i + 1}. **${u.name}**${u.role ? ` — ${u.role}` : ''}`).join('\n');
-
-  const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
-  const acceptedHeader =
-    overflow > 0 ? `✅ Accepted (${ev.limit} +${overflow})` : `✅ Accepted (${ev.accepted.length})`;
-
-  const fields = [
-    { name: acceptedHeader, value: fmtList(ev.accepted), inline: true },
-    { name: `❓ Maybe (${ev.maybe.length})`, value: fmtList(ev.maybe), inline: true },
-    { name: `❌ Declined (${ev.declined.length})`, value: fmtList(ev.declined), inline: true },
-  ];
-
-  if (ev.guildId) {
-    const respondedIds = new Set([...ev.accepted, ...ev.maybe, ...ev.declined].map((u) => u.id));
-    const allowedRoleNames =
-      ev.team === '2 Mannschaft' ? ['2 Mannschaft', 'Tester'] : ev.team === '1 Mannschaft' ? ['1 Mannschaft'] : null;
-    const missingFields = await getMissingFields(ev.guildId, respondedIds, allowedRoleNames);
-    fields.push(...missingFields);
+    if (code === 'ZDM') {
+      zdmCount += 1;
+      assigned[zdmCount === 1 ? 'ZDM' : 'ZDM2'] = name;
+    } else {
+      assigned[code] = name;
+    }
   }
 
-  return {
-    title: ev.title,
-    color: 0x000000,
-    description: [
-      ev.team ? `🏆 ${ev.team}` : null,
-      ev.flag ? `🚩 ${ev.flag}` : null,
-      ev.beschreibung ? ev.beschreibung : null,
-      `📅 <t:${ev.timestamp}:D>  ⏰ <t:${ev.timestamp}:t>  ⏳ <t:${ev.timestamp}:R>`,
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    fields,
-    image: ev.imageUrl ? { url: ev.imageUrl } : undefined,
-    footer: { text: `Erstellt von ${ev.creator}` },
-  };
-}
-
-function buildComponents(eventId) {
-  return [
-    {
-      type: 1, // Action Row
-      components: [
-        { type: 2, style: 2, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
-        { type: 2, style: 2, emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` },
-        { type: 2, style: 2, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: 'Aufstellungsvorschlag (3-5-2)',
+          color: 0x000000,
+          fields: [
+            { name: '🔺 Sturm', value: fmtLine(assigned, ['LS', 'RS']) },
+            { name: '↔️ Flügel', value: fmtLine(assigned, ['LM', 'RM']) },
+            {
+              name: '🔸 Mittelfeld',
+              value: `**ZDM:** ${assigned.ZDM || '—'}   **ZOM:** ${assigned.ZOM || '—'}   **ZDM:** ${assigned.ZDM2 || '—'}`,
+            },
+            { name: '🔹 Abwehr', value: fmtLine(assigned, ['LIV', 'ZIV', 'RIV']) },
+            { name: '🥅 Tor', value: fmtLine(assigned, ['TW']) },
+          ],
+          footer: { text: 'Automatisch vorgeschlagen anhand der HP-Positionen (/position hp)' },
+        },
       ],
     },
-  ];
+  });
 }
+
+// ---------- Höchste Rolle, "Wer fehlt", buildEmbed/buildComponents ----------
+// -> jetzt alle in ./lib/event-core.js, hier oben importiert
 
 // ---------- Slash-Command /event ----------
 async function handleCreateEvent(interaction, store) {
@@ -782,6 +713,10 @@ exports.handler = async (event) => {
 
   if (interaction.type === 2 && interaction.data?.name === 'aufstellung') {
     return handleAufstellungCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'aufstellungvorschlag') {
+    return handleAufstellungVorschlagCommand(interaction);
   }
 
   if (interaction.type === 3) {

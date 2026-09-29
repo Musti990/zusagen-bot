@@ -1,504 +1,746 @@
-// Öffentliche Webseite, die alle Servermitglieder mit Rollen und HP/NP-Positionen zeigt.
-// Mit Filter-Sidebar (nach Rolle) und sortierbaren Spalten (clientseitig, kein Reload nötig).
-// Erreichbar unter: https://DEIN-SITE.netlify.app/.netlify/functions/members-page
+const nacl = require('tweetnacl');
+const { getStore } = require('@netlify/blobs');
+const {
+  berlinToUtcTimestamp,
+  getTopRoleName,
+  buildEmbed,
+  buildComponents,
+} = require('./lib/event-core');
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-function escapeAttr(s) {
-  return escapeHtml(s).replace(/\n/g, ' ');
+// ---------- Signatur-Prüfung (Pflicht laut Discord) ----------
+function verifySignature(event) {
+  const signature = event.headers['x-signature-ed25519'];
+  const timestamp = event.headers['x-signature-timestamp'];
+  const rawBody = event.body || '';
+  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+
+  if (!signature || !timestamp || !publicKey) return false;
+
+  try {
+    return nacl.sign.detached.verify(
+      Buffer.from(timestamp + rawBody),
+      Buffer.from(signature, 'hex'),
+      Buffer.from(publicKey, 'hex')
+    );
+  } catch {
+    return false;
+  }
 }
 
-function parseHpNp(nick) {
-  const hpMatch = nick.match(/HP:\s*([A-ZÄÖÜ,0-9]+)/);
-  const npMatch = nick.match(/NP:\s*([A-ZÄÖÜ,0-9]+)/);
+function json(statusCode, data) {
   return {
-    hp: hpMatch ? hpMatch[1].split(',').filter(Boolean) : [],
-    np: npMatch ? npMatch[1].split(',').filter(Boolean) : [],
+    statusCode,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
   };
 }
 
-exports.handler = async (event) => {
-  const guildId = event.queryStringParameters?.guild || process.env.GUILD_ID;
+// Wandelt Jahr/Monat/Tag/Stunde/Minute, gedacht als deutsche Ortszeit (Europe/Berlin,
+// inkl. automatischer Sommer-/Winterzeit-Erkennung), in einen korrekten UTC-Unix-Timestamp um.
+// -> jetzt in ./lib/event-core.js, hier nur noch importiert (siehe oben)
 
-  if (!guildId) {
-    return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<h1>Fehler</h1><p>Keine Server-ID gefunden. Entweder GUILD_ID als Umgebungsvariable setzen, oder ?guild=DEINE_SERVER_ID an die URL anhängen.</p>',
-    };
+// Rollen, die in Bot-Anzeigen nie als "Top-Rolle" berücksichtigt werden sollen
+// -> jetzt in ./lib/event-core.js, hier nur noch importiert (siehe oben)
+
+// Wer eine dieser Rollen hat, wird in der "Wer fehlt"-Liste komplett übersprungen (kann aber weiterhin abstimmen)
+// -> jetzt in ./lib/event-core.js
+
+// ---------- Quiz-Fragen (hier selbst bearbeiten) ----------
+// "correct" ist der Index (0-3) der richtigen Antwort in "choices"
+const QUIZ_QUESTIONS = [
+  { question: 'Wie viele Spieler stehen bei einer Fußballmannschaft auf dem Feld?', choices: ['9', '10', '11', '12'], correct: 2 },
+  { question: 'Wie lange dauert eine reguläre Fußball-Halbzeit?', choices: ['40 Minuten', '45 Minuten', '50 Minuten', '35 Minuten'], correct: 1 },
+  { question: 'Welche Farbe zeigt der Schiedsrichter bei einem Platzverweis?', choices: ['Gelb', 'Grün', 'Rot', 'Blau'], correct: 2 },
+  { question: 'Wie viele Weltmeisterschaften hat Deutschland gewonnen (Stand 2014)?', choices: ['3', '4', '5', '2'], correct: 1 },
+  { question: 'Was passiert bei zwei gelben Karten für denselben Spieler?', choices: ['Nichts', 'Freistoß', 'Gelb-Rot (Platzverweis)', 'Elfmeter'], correct: 2 },
+  { question: 'Wie nennt man ein Tor aus der eigenen Hälfte direkt ins gegnerische Tor?', choices: ['Elfmeter', 'Abseitstor', 'Fernschuss-Tor', 'Traumtor'], correct: 3 },
+  { question: 'Wie viele Auswechslungen sind in einem regulären Spiel meist erlaubt?', choices: ['3', '5', '7', 'Unbegrenzt'], correct: 1 },
+  { question: 'Was zeigt die Abseitsregel an?', choices: ['Zu viele Spieler auf dem Feld', 'Foulspiel', 'Position eines Angreifers ohne genug Verteidiger vor sich', 'Zeitüberschreitung'], correct: 2 },
+];
+
+// ---------- /quiz ----------
+function buildQuizAnswerComponents(quizId, qIndex, choices) {
+  const answerRow = {
+    type: 1,
+    components: choices.map((c, i) => ({
+      type: 2,
+      style: 1,
+      label: c,
+      custom_id: `quiz:answer:${quizId}:${i}`,
+    })),
+  };
+  const nextRow = {
+    type: 1,
+    components: [{ type: 2, style: 2, label: '➡️ Nächste Frage', custom_id: `quiz:next:${quizId}` }],
+  };
+  return [answerRow, nextRow];
+}
+
+function buildQuizQuestionEmbed(qIndex) {
+  const q = QUIZ_QUESTIONS[qIndex];
+  return {
+    title: `Quiz — Frage ${qIndex + 1}/${QUIZ_QUESTIONS.length}`,
+    description: q.question,
+    color: 0x000000,
+  };
+}
+
+function buildQuizResultEmbed(scores) {
+  const ranked = Object.values(scores).sort((a, b) => b.points - a.points);
+  const value =
+    ranked.length === 0
+      ? 'Niemand hat mitgemacht.'
+      : ranked.map((s, i) => `${i + 1}. **${s.name}** — ${s.points} Punkt${s.points === 1 ? '' : 'e'}`).join('\n');
+
+  return {
+    title: '🏆 Quiz beendet — Rangliste',
+    description: value,
+    color: 0x000000,
+  };
+}
+
+async function handleQuizStart(interaction, quizStore) {
+  const quizId = interaction.id;
+  const session = { qIndex: 0, scores: {}, answered: {} };
+  await quizStore.setJSON(quizId, session);
+
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [buildQuizQuestionEmbed(0)],
+      components: buildQuizAnswerComponents(quizId, 0, QUIZ_QUESTIONS[0].choices),
+    },
+  });
+}
+
+async function handleQuizAnswer(interaction, quizStore) {
+  const [, , quizId, choiceIndexStr] = interaction.data.custom_id.split(':');
+  const choiceIndex = Number(choiceIndexStr);
+
+  const session = await quizStore.get(quizId, { type: 'json' });
+  if (!session) {
+    return json(200, { type: 4, data: { content: 'Dieses Quiz ist nicht mehr aktiv.', flags: 64 } });
   }
 
+  const userId = interaction.member?.user?.id || interaction.user?.id;
+  const name =
+    interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
+
+  if (session.answered[userId]) {
+    return json(200, { type: 4, data: { content: 'Du hast diese Frage schon beantwortet.', flags: 64 } });
+  }
+
+  const q = QUIZ_QUESTIONS[session.qIndex];
+  const isCorrect = choiceIndex === q.correct;
+
+  session.answered[userId] = true;
+  if (!session.scores[userId]) session.scores[userId] = { name, points: 0 };
+  if (isCorrect) session.scores[userId].points += 1;
+
+  await quizStore.setJSON(quizId, session);
+
+  return json(200, {
+    type: 4,
+    data: {
+      content: isCorrect ? '✅ Richtig!' : `❌ Falsch! Richtige Antwort: **${q.choices[q.correct]}**`,
+      flags: 64,
+    },
+  });
+}
+
+async function handleQuizNext(interaction, quizStore) {
+  const [, , quizId] = interaction.data.custom_id.split(':');
+
+  const session = await quizStore.get(quizId, { type: 'json' });
+  if (!session) {
+    return json(200, { type: 4, data: { content: 'Dieses Quiz ist nicht mehr aktiv.', flags: 64 } });
+  }
+
+  session.qIndex += 1;
+  session.answered = {};
+
+  if (session.qIndex >= QUIZ_QUESTIONS.length) {
+    await quizStore.setJSON(quizId, session);
+    return json(200, {
+      type: 7,
+      data: { embeds: [buildQuizResultEmbed(session.scores)], components: [] },
+    });
+  }
+
+  await quizStore.setJSON(quizId, session);
+
+  return json(200, {
+    type: 7,
+    data: {
+      embeds: [buildQuizQuestionEmbed(session.qIndex)],
+      components: buildQuizAnswerComponents(quizId, session.qIndex, QUIZ_QUESTIONS[session.qIndex].choices),
+    },
+  });
+}
+
+// ---------- /rentner ----------
+async function handleRentnerCommand(interaction) {
+  const guildId = interaction.guild_id;
   const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
 
-  const [rolesRes, membersRes, channelsRes] = await Promise.all([
-    fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader }),
-    fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, { headers: authHeader }),
-    fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, { headers: authHeader }),
-  ]);
-
-  if (!rolesRes.ok || !membersRes.ok) {
-    return {
-      statusCode: 502,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<h1>Fehler</h1><p>Konnte Daten nicht von Discord laden. Prüfe DISCORD_TOKEN und ob "Server Members Intent" aktiviert ist.</p>',
-    };
+  const membersRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+    headers: authHeader,
+  });
+  if (!membersRes.ok) {
+    return json(200, { type: 4, data: { content: 'Konnte Mitgliederliste nicht laden.', flags: 64 } });
   }
-
-  const channels = channelsRes.ok ? await channelsRes.json() : [];
-  const textChannels = channels.filter((c) => c.type === 0).sort((a, b) => (a.position || 0) - (b.position || 0));
-
-  const roles = await rolesRes.json();
-  const roleById = {};
-  roles.forEach((r) => (roleById[r.id] = r));
-
   const members = await membersRes.json();
 
-  const rows = members
+  const target = members.find((m) => {
+    const username = (m.user?.username || '').toLowerCase();
+    const nick = (m.nick || '').toLowerCase();
+    return username.includes('montelione') || nick.includes('montelione');
+  });
+
+  if (!target) {
+    return json(200, {
+      type: 4,
+      data: { content: 'Konnte niemanden namens "montelione" auf diesem Server finden.', flags: 64 },
+    });
+  }
+
+  return json(200, {
+    type: 4,
+    data: { content: `<@${target.user.id}> du Rentner 👴` },
+  });
+}
+
+// ---------- /aufstellung (3-5-2, als Text) ----------
+const POSITION_CODES = ['TW', 'LIV', 'ZIV', 'RIV', 'LM', 'RM', 'ZDM', 'ZOM', 'LS', 'RS'];
+
+function parseAufstellungInput(input) {
+  const codes = POSITION_CODES.slice().sort((a, b) => b.length - a.length);
+  const codePattern = codes.join('|');
+  const regex = new RegExp(`(${codePattern})\\s*:\\s*([^:]*?)(?=\\s+(?:${codePattern})\\s*:|$)`, 'g');
+
+  const occurrences = {};
+  let match;
+  while ((match = regex.exec(input)) !== null) {
+    const code = match[1];
+    const name = match[2].trim();
+    if (!name) continue;
+    if (!occurrences[code]) occurrences[code] = [];
+    occurrences[code].push(name);
+  }
+
+  const result = {};
+  for (const [code, names] of Object.entries(occurrences)) {
+    if (code === 'ZDM') {
+      if (names[0]) result.ZDM = names[0];
+      if (names[1]) result.ZDM2 = names[1];
+    } else {
+      result[code] = names[0];
+    }
+  }
+  return result;
+}
+
+function fmtLine(players, codes) {
+  const labelFor = (c) => (c === 'ZDM2' ? 'ZDM' : c);
+  return codes.map((c) => `**${labelFor(c)}:** ${players[c] || '—'}`).join('   ');
+}
+
+async function handleAufstellungCommand(interaction) {
+  const opts = {};
+  for (const o of interaction.data.options || []) opts[o.name] = o.value;
+
+  const players = parseAufstellungInput(opts.spieler || '');
+  const creator =
+    interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
+
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: opts.titel || 'Aufstellung (3-5-2)',
+          color: 0x000000,
+          fields: [
+            { name: '🔺 Sturm', value: fmtLine(players, ['LS', 'RS']) },
+            { name: '↔️ Flügel', value: fmtLine(players, ['LM', 'RM']) },
+            {
+              name: '🔸 Mittelfeld',
+              value: `**ZDM:** ${players.ZDM || '—'}   **ZOM:** ${players.ZOM || '—'}   **ZDM:** ${players.ZDM2 || '—'}`,
+            },
+            { name: '🔹 Abwehr', value: fmtLine(players, ['LIV', 'ZIV', 'RIV']) },
+            { name: '🥅 Tor', value: fmtLine(players, ['TW']) },
+          ],
+          footer: { text: `Erstellt von ${creator}` },
+        },
+      ],
+    },
+  });
+}
+
+// ---------- /aufstellungvorschlag (automatisch anhand HP-Tags im Nickname) ----------
+async function handleAufstellungVorschlagCommand(interaction) {
+  const guildId = interaction.guild_id;
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
+
+  const membersRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+    headers: authHeader,
+  });
+  if (!membersRes.ok) {
+    return json(200, { type: 4, data: { content: 'Konnte Mitgliederliste nicht laden.', flags: 64 } });
+  }
+  const members = await membersRes.json();
+
+  let pool = members
     .filter((m) => !m.user?.bot)
     .map((m) => {
       const nick = m.nick || m.user?.username || 'Unbekannt';
       const baseName = nick.split('|')[0].trim();
-      const { hp, np } = parseHpNp(nick);
-
-      const memberRoles = (m.roles || [])
-        .map((id) => roleById[id])
-        .filter((r) => r && r.name !== '@everyone')
-        .sort((a, b) => b.position - a.position)
-        .map((r) => r.name);
-
-      return { baseName, roles: memberRoles, hp, np };
+      const hpMatch = nick.match(/HP:\s*([A-ZÄÖÜ,0-9]+)/);
+      const hp = hpMatch ? hpMatch[1].split(',').filter(Boolean) : [];
+      return { id: m.user.id, name: baseName, hp };
     })
-    .sort((a, b) => a.baseName.localeCompare(b.baseName));
+    .filter((p) => p.hp.length > 0);
 
-  // Rollen für die Sidebar sammeln, priorisiert 1./2. Mannschaft zuerst, Rest alphabetisch danach
-  const allRoleNames = [...new Set(rows.flatMap((r) => r.roles))];
-  const priority = ['1 Mannschaft', '2 Mannschaft'];
-  const sidebarRoles = [
-    ...priority.filter((p) => allRoleNames.includes(p)),
-    ...allRoleNames.filter((r) => !priority.includes(r)).sort((a, b) => a.localeCompare(b)),
-  ];
+  const slots = ['TW', 'LIV', 'ZIV', 'RIV', 'ZDM', 'ZDM', 'ZOM', 'LM', 'RM', 'LS', 'RS'];
+  const assigned = {};
+  let zdmCount = 0;
 
-  const filterButtons = [
-    `<button class="filter-btn active" data-role="__all__">Alle <span class="count">${rows.length}</span></button>`,
-    ...sidebarRoles.map((r) => {
-      const c = rows.filter((row) => row.roles.includes(r)).length;
-      return `<button class="filter-btn" data-role="${escapeAttr(r)}">${escapeHtml(r)} <span class="count">${c}</span></button>`;
-    }),
-  ].join('');
+  for (const code of slots) {
+    const idx = pool.findIndex((p) => p.hp.includes(code));
+    let name = '—';
+    if (idx !== -1) {
+      name = pool[idx].name;
+      pool.splice(idx, 1);
+    }
+    if (code === 'ZDM') {
+      zdmCount += 1;
+      assigned[zdmCount === 1 ? 'ZDM' : 'ZDM2'] = name;
+    } else {
+      assigned[code] = name;
+    }
+  }
 
-  const tableRows = rows
-    .map(
-      (r) => `
-      <tr data-roles="${escapeAttr(r.roles.join('|'))}" data-name="${escapeAttr(r.baseName)}">
-        <td>${escapeHtml(r.baseName)}</td>
-        <td>${r.roles.map((x) => `<span class="badge">${escapeHtml(x)}</span>`).join(' ') || '—'}</td>
-        <td>${r.hp.map((x) => `<span class="badge hp">${escapeHtml(x)}</span>`).join(' ') || '—'}</td>
-        <td>${r.np.map((x) => `<span class="badge np">${escapeHtml(x)}</span>`).join(' ') || '—'}</td>
-      </tr>`
-    )
-    .join('');
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: 'Aufstellungsvorschlag (3-5-2)',
+          color: 0x000000,
+          fields: [
+            { name: '🔺 Sturm', value: fmtLine(assigned, ['LS', 'RS']) },
+            { name: '↔️ Flügel', value: fmtLine(assigned, ['LM', 'RM']) },
+            {
+              name: '🔸 Mittelfeld',
+              value: `**ZDM:** ${assigned.ZDM || '—'}   **ZOM:** ${assigned.ZOM || '—'}   **ZDM:** ${assigned.ZDM2 || '—'}`,
+            },
+            { name: '🔹 Abwehr', value: fmtLine(assigned, ['LIV', 'ZIV', 'RIV']) },
+            { name: '🥅 Tor', value: fmtLine(assigned, ['TW']) },
+          ],
+          footer: { text: 'Automatisch vorgeschlagen anhand der HP-Positionen (/position hp)' },
+        },
+      ],
+    },
+  });
+}
 
-  const channelOptions = textChannels
-    .map((c) => `<option value="${escapeAttr(c.id)}">#${escapeHtml(c.name)}</option>`)
-    .join('');
+// ---------- Höchste Rolle, "Wer fehlt", buildEmbed/buildComponents ----------
+// -> jetzt alle in ./lib/event-core.js, hier oben importiert
 
-  // Formation-Code -> welcher HP/NP-Tag-Code dafür zählt (LS/RS nutzen den generischen "ST"-Tag aus /position)
-  const POSITION_TO_TAG = {
-    TW: 'TW', LIV: 'LIV', ZIV: 'ZIV', RIV: 'RIV',
-    LM: 'LM', RM: 'RM', ZDM: 'ZDM', ZDM2: 'ZDM', ZOM: 'ZOM',
-    LS: 'ST', RS: 'ST',
+// ---------- Slash-Command /event ----------
+async function handleCreateEvent(interaction, store) {
+  const opts = {};
+  for (const o of interaction.data.options || []) opts[o.name] = o.value;
+
+  const [day, month, year] = opts.datum.split('.').map(Number);
+  const [hour, minute] = opts.uhrzeit.split(':').map(Number);
+  const date = new Date(year, month - 1, day, hour, minute);
+
+  if (isNaN(date.getTime())) {
+    return json(200, {
+      type: 4,
+      data: { content: 'Datum oder Uhrzeit ungültig. Format: TT.MM.JJJJ und HH:MM', flags: 64 },
+    });
+  }
+
+  const creator =
+    interaction.member?.nick || interaction.member?.user?.username || interaction.user?.username || 'Unbekannt';
+
+  const imageUrl = opts.bild ? interaction.data.resolved?.attachments?.[opts.bild]?.url || null : null;
+
+  const eventId = interaction.id;
+  const ev = {
+    title: opts.titel,
+    flag: opts.info || '',
+    beschreibung: opts.beschreibung || '',
+    limit: opts.limit,
+    timestamp: berlinToUtcTimestamp(year, month, day, hour, minute),
+    creator,
+    guildId: interaction.guild_id,
+    imageUrl,
+    team: opts.mannschaft || null,
+    accepted: [],
+    maybe: [],
+    declined: [],
   };
 
-  function buildPlayerOptions(posCode) {
-    const tag = POSITION_TO_TAG[posCode];
-    const hpMatches = rows.filter((r) => r.hp.includes(tag));
-    const npMatches = rows.filter((r) => r.np.includes(tag) && !r.hp.includes(tag));
-    const others = rows.filter((r) => !r.hp.includes(tag) && !r.np.includes(tag));
+  await store.setJSON(eventId, ev);
 
-    const opt = (r) => `<option value="${escapeAttr(r.baseName)}">${escapeHtml(r.baseName)}</option>`;
+  return json(200, {
+    type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
+    data: { embeds: [await buildEmbed(ev)], components: buildComponents(eventId) },
+  });
+}
 
-    let html = '<option value="">—</option>';
-    if (hpMatches.length > 0) html += `<optgroup label="Hauptposition ${tag}">${hpMatches.map(opt).join('')}</optgroup>`;
-    if (npMatches.length > 0) html += `<optgroup label="Nebenposition ${tag}">${npMatches.map(opt).join('')}</optgroup>`;
-    html += `<optgroup label="Andere Spieler" class="others-group">${others.map(opt).join('')}</optgroup>`;
-    return html;
+// ---------- Button-Klick ----------
+async function handleButton(interaction, store) {
+  const [prefix, action, eventId] = interaction.data.custom_id.split(':');
+  if (prefix !== 'rsvp') return json(400, { error: 'unknown component' });
+
+  const ev = await store.get(eventId, { type: 'json' });
+  if (!ev) {
+    return json(200, {
+      type: 4,
+      data: { content: 'Dieses Event ist nicht mehr verfügbar.', flags: 64 },
+    });
   }
 
-  const POSITION_GROUPS = [
-    { title: '🔺 Sturm', codes: ['LS', 'RS'] },
-    { title: '↔️ Flügel', codes: ['LM', 'RM'] },
-    { title: '🔸 Mittelfeld', codes: ['ZDM', 'ZOM', 'ZDM2'] },
-    { title: '🔹 Abwehr', codes: ['LIV', 'ZIV', 'RIV'] },
-    { title: '🥅 Tor', codes: ['TW'] },
-  ];
-
-  // Koordinaten (% von links/oben) für die Spielfeld-Vorschau, Angriff = oben
-  const PITCH_COORDS = {
-    LS: [35, 15], RS: [65, 15],
-    LM: [8, 42], ZDM: [30, 55], ZOM: [50, 45], ZDM2: [70, 55], RM: [92, 42],
-    LIV: [22, 72], ZIV: [50, 75], RIV: [78, 72],
-    TW: [50, 92],
+  const member = interaction.member;
+  const roleName = await getTopRoleName(interaction.guild_id, member?.roles);
+  const user = {
+    id: member?.user?.id || interaction.user?.id,
+    name: member?.nick || member?.user?.username || interaction.user?.username || 'Unbekannt',
+    role: roleName,
   };
 
-  const pitchMarkersHtml = Object.entries(PITCH_COORDS)
-    .map(
-      ([code, [x, y]]) => `
-      <div class="pitch-marker" style="left:${x}%; top:${y}%;" data-marker="${code}">
-        <div class="jersey">${code === 'ZDM2' ? 'ZDM' : code}</div>
-        <div class="marker-name">—</div>
-      </div>`
-    )
-    .join('');
+  const inAccepted = ev.accepted.some((u) => u.id === user.id);
+  const inMaybe = ev.maybe.some((u) => u.id === user.id);
+  const inDeclined = ev.declined.some((u) => u.id === user.id);
 
-  const pitchLinesHtml = `
-    <div class="pitch-line-h" style="top:50%;"></div>
-    <div class="pitch-circle"></div>
-    <div class="pitch-box top"></div>
-    <div class="pitch-box bottom"></div>
-  `;
+  ev.accepted = ev.accepted.filter((u) => u.id !== user.id);
+  ev.maybe = ev.maybe.filter((u) => u.id !== user.id);
+  ev.declined = ev.declined.filter((u) => u.id !== user.id);
 
-  const positionGroupsHtml = POSITION_GROUPS.map(
-    (g) => `
-      <div class="pos-group">
-        <h4>${g.title}</h4>
-        <div class="pos-fields">
-          ${g.codes
-            .map(
-              (c) => `
-            <label class="pos-field">
-              <span>${c === 'ZDM2' ? 'ZDM' : c}</span>
-              <select class="pos-select filtered" data-pos="${c}">${buildPlayerOptions(c)}</select>
-            </label>`
-            )
-            .join('')}
-        </div>
-      </div>`
-  ).join('');
+  const wasAlreadySelected =
+    (action === 'accept' && inAccepted) ||
+    (action === 'maybe' && inMaybe) ||
+    (action === 'decline' && inDeclined);
 
-  const html = `<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Mitgliederübersicht</title>
-<style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #0f0f12; color: #e5e5e5; margin: 0; padding: 0; }
-  header { text-align: center; padding: 2rem 1rem 1rem; }
-  h1 { margin-bottom: 0.25rem; }
-  p.sub { color: #9ca3af; margin-top: 0; }
-  .layout { display: flex; gap: 1.5rem; max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; align-items: flex-start; flex-wrap: wrap; }
-  aside { background: #17171c; border-radius: 12px; padding: 1rem; min-width: 200px; flex: 0 0 200px; }
-  aside h3 { margin: 0 0 0.75rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #9ca3af; }
-  .filter-btn { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; background: transparent; border: none; color: #e5e5e5; padding: 0.5rem 0.6rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; margin-bottom: 0.15rem; }
-  .filter-btn:hover { background: #1f1f27; }
-  .filter-btn.active { background: #3730a3; color: #fff; }
-  .filter-btn .count { color: #9ca3af; font-size: 0.8rem; }
-  .filter-btn.active .count { color: #c7d2fe; }
-  main { flex: 1; min-width: 300px; }
-  table { width: 100%; border-collapse: collapse; background: #17171c; border-radius: 12px; overflow: hidden; }
-  th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #26262e; }
-  th { background: #1f1f27; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #9ca3af; cursor: pointer; user-select: none; white-space: nowrap; }
-  th:hover { color: #e5e5e5; }
-  th .arrow { opacity: 0.4; margin-left: 0.25rem; font-size: 0.75rem; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover { background: #1c1c23; }
-  tr.hidden { display: none; }
-  .badge { display: inline-block; background: #2a2a33; color: #e5e5e5; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.8rem; margin: 0.1rem; }
-  .badge.hp { background: #3730a3; }
-  .badge.np { background: #92400e; }
-  .count-line { text-align: center; color: #9ca3af; margin-top: 1.25rem; font-size: 0.9rem; }
-  .lineup-builder { background: #17171c; border-radius: 12px; padding: 1.25rem; margin-top: 1.5rem; }
-  .lineup-builder h2 { margin-top: 0; font-size: 1.1rem; }
-  .lineup-top-row { display: flex; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
-  .top-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: #9ca3af; flex: 1; min-width: 160px; }
-  .top-field select, .top-field input[type="text"], .top-field textarea { background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.5rem; font-size: 0.9rem; font-family: inherit; resize: vertical; }
-  .top-field.full-width { flex: 1 1 100%; }
-  .builder-columns { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
-  .builder-fields { flex: 1 1 320px; min-width: 280px; }
-  .pitch-preview { flex: 0 0 260px; }
-  .pitch {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 2 / 3;
-    min-height: 360px;
-    border-radius: 10px;
-    overflow: hidden;
-    background: repeating-linear-gradient(to bottom, #2f9e44 0, #2f9e44 12%, #37b24d 12%, #37b24d 24%);
-    border: 3px solid rgba(255,255,255,0.85);
+  if (!wasAlreadySelected) {
+    const list = action === 'accept' ? ev.accepted : action === 'maybe' ? ev.maybe : ev.declined;
+    list.push(user);
   }
-  .pitch-line-h { position: absolute; left: 0; right: 0; height: 2px; background: rgba(255,255,255,0.85); }
-  .pitch-circle {
-    position: absolute; left: 50%; top: 50%; width: 90px; height: 90px;
-    border: 2px solid rgba(255,255,255,0.85); border-radius: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .pitch-box {
-    position: absolute; left: 20%; width: 60%; height: 14%;
-    border: 2px solid rgba(255,255,255,0.85);
-  }
-  .pitch-box.top { top: 0; border-top: none; }
-  .pitch-box.bottom { bottom: 0; border-bottom: none; }
-  .pitch-marker {
-    position: absolute;
-    transform: translate(-50%, -50%);
-    display: flex; flex-direction: column; align-items: center;
-    gap: 0.15rem;
-    z-index: 2;
-  }
-  .jersey {
-    width: 32px; height: 32px; border-radius: 50%;
-    background: #111827; border: 2px solid #fff; color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.6rem; font-weight: bold;
-  }
-  .marker-name {
-    background: rgba(0,0,0,0.65); color: #fff; font-size: 0.65rem;
-    padding: 0.1rem 0.35rem; border-radius: 5px; white-space: nowrap;
-    max-width: 90px; overflow: hidden; text-overflow: ellipsis;
-  }
-  @media (max-width: 700px) {
-    .builder-columns { flex-direction: column; }
-    .pitch-preview { flex: 1 1 auto; width: 100%; max-width: 320px; margin: 0 auto; }
-  }
-  .pos-group { margin-bottom: 1rem; }
-  .pos-group h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: #9ca3af; }
-  .pos-fields { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-  .pos-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; color: #9ca3af; }
-  .pos-field select { background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.4rem; font-size: 0.85rem; min-width: 130px; }
-  select.filtered optgroup.others-group { display: none; }
-  .show-all-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #9ca3af; margin-bottom: 1rem; cursor: pointer; }
-  .show-all-toggle input { cursor: pointer; }
-  #post-btn { margin-top: 0.5rem; background: #3730a3; color: #fff; border: none; padding: 0.65rem 1.25rem; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
-  #post-btn:hover { background: #4338ca; }
-  #post-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-  #post-status { margin-top: 0.6rem; font-size: 0.85rem; }
-  #post-status.success { color: #4ade80; }
-  #post-status.error { color: #f87171; }
-  @media (max-width: 700px) {
-    .layout { flex-direction: column; }
-    aside { flex: 1 1 auto; width: 100%; }
-  }
-</style>
-</head>
-<body>
-  <header>
-    <h1>Mitgliederübersicht</h1>
-    <p class="sub">Automatisch aktualisiert direkt aus Discord — Rollen, Haupt- (HP) und Nebenpositionen (NP)</p>
-  </header>
-  <div class="layout">
-    <aside>
-      <h3>Nach Rolle filtern</h3>
-      ${filterButtons}
-    </aside>
-    <main>
-      <table id="members-table">
-        <thead>
-          <tr>
-            <th data-sort="name">Name <span class="arrow">↕</span></th>
-            <th data-sort="roles">Rollen <span class="arrow">↕</span></th>
-            <th data-sort="hp">Hauptposition <span class="arrow">↕</span></th>
-            <th data-sort="np">Nebenposition <span class="arrow">↕</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRows}
-        </tbody>
-      </table>
-      <p class="count-line" id="count-line">${rows.length} Mitglieder</p>
 
-      <section class="lineup-builder">
-        <h2>Aufstellung erstellen (3-5-2)</h2>
-        <div class="lineup-top-row">
-          <label class="top-field">
-            <span>Mannschaft</span>
-            <input type="text" id="team-select" value="1 Mannschaft" list="team-suggestions" />
-            <datalist id="team-suggestions">
-              <option value="1 Mannschaft"></option>
-              <option value="2 Mannschaft"></option>
-            </datalist>
-          </label>
-          <label class="top-field">
-            <span>Kanal</span>
-            <select id="channel-select">${channelOptions}</select>
-          </label>
-        </div>
+  await store.setJSON(eventId, ev);
 
-        <label class="show-all-toggle">
-          <input type="checkbox" id="show-all-toggle" />
-          <span>Alle Spieler anzeigen (statt nur passende Positionen)</span>
-        </label>
+  return json(200, {
+    type: 7, // UPDATE_MESSAGE
+    data: { embeds: [await buildEmbed(ev)], components: buildComponents(eventId) },
+  });
+}
 
-        <label class="top-field full-width">
-          <span>Beschreibung (optional)</span>
-          <textarea id="description-input" rows="2" placeholder="z.B. Anpfiff 15 Uhr, bitte pünktlich sein"></textarea>
-        </label>
+// ---------- Slash-Command /mitglieder ----------
+async function handleMembersCommand(interaction) {
+  const guildId = interaction.guild_id;
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
 
-        <div class="builder-columns">
-          <div class="builder-fields">
-            ${positionGroupsHtml}
-          </div>
-          <div class="pitch-preview">
-            <div class="pitch">
-              ${pitchLinesHtml}
-              ${pitchMarkersHtml}
-            </div>
-          </div>
-        </div>
+  const rolesRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, {
+    headers: authHeader,
+  });
+  if (!rolesRes.ok) {
+    return json(200, { type: 4, data: { content: 'Konnte Rollen nicht laden.', flags: 64 } });
+  }
+  const roles = await rolesRes.json();
+  const roleById = {};
+  roles.forEach((r) => (roleById[r.id] = r));
 
-        <button id="post-btn">In Discord posten</button>
-        <p id="post-status"></p>
-      </section>
-    </main>
-  </div>
+  const membersRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, {
+    headers: authHeader,
+  });
+  if (!membersRes.ok) {
+    return json(200, {
+      type: 4,
+      data: {
+        content:
+          'Konnte Mitgliederliste nicht laden. Stelle sicher, dass "Server Members Intent" im Developer Portal unter Bot aktiviert ist.',
+        flags: 64,
+      },
+    });
+  }
+  const members = await membersRes.json();
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script>
-    (function () {
-      const postBtn = document.getElementById('post-btn');
-      const statusEl = document.getElementById('post-status');
-      const showAllToggle = document.getElementById('show-all-toggle');
+  const groups = {};
+  for (const m of members) {
+    if (m.user?.bot) continue;
+    const memberRoles = (m.roles || [])
+      .map((id) => roleById[id])
+      .filter((r) => r && r.name !== '@everyone')
+      .sort((a, b) => b.position - a.position);
+    const topRole = memberRoles.length > 0 ? memberRoles[0].name : 'Ohne Rolle';
+    const name = m.nick || m.user?.username || 'Unbekannt';
+    if (!groups[topRole]) groups[topRole] = [];
+    groups[topRole].push(name);
+  }
 
-      showAllToggle.addEventListener('change', () => {
-        document.querySelectorAll('select.pos-select').forEach((sel) => {
-          sel.classList.toggle('filtered', !showAllToggle.checked);
-        });
+  const rolePosition = (roleName) => roles.find((r) => r.name === roleName)?.position ?? -1;
+  const sortedGroupNames = Object.keys(groups).sort((a, b) => rolePosition(b) - rolePosition(a));
+
+  const fields = sortedGroupNames.slice(0, 25).map((roleName) => ({
+    name: `${roleName} (${groups[roleName].length})`,
+    value: groups[roleName].map((n, i) => `${i + 1}. **${n}**`).join('\n') || '—',
+    inline: true,
+  }));
+
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: 'Mitgliederübersicht',
+          color: 0x000000,
+          fields,
+        },
+      ],
+    },
+  });
+}
+
+// ---------- Positions-Auswahl im Nickname (/position hp / /position np) ----------
+const POSITIONS = ['ZDM', 'ZIV', 'LIV', 'RIV', 'LM', 'RM', 'ZOM', 'ST', 'TW'];
+
+function buildPositionButtons(prefix) {
+  const rows = [];
+  for (let i = 0; i < POSITIONS.length; i += 5) {
+    const chunk = POSITIONS.slice(i, i + 5);
+    rows.push({
+      type: 1,
+      components: chunk.map((p) => ({ type: 2, style: 1, label: p, custom_id: `posnick:${prefix}:${p}` })),
+    });
+  }
+  return rows;
+}
+
+async function handlePositionCommand(interaction) {
+  const sub = interaction.data.options?.[0]?.name; // 'hp' oder 'np'
+  const prefix = sub === 'np' ? 'NP' : 'HP';
+  const label = sub === 'np' ? 'Nebenposition' : 'Hauptposition';
+
+  return json(200, {
+    type: 4,
+    data: {
+      content: `Wähle deine ${label}:`,
+      components: buildPositionButtons(prefix),
+    },
+  });
+}
+
+async function handlePositionNickButton(interaction) {
+  const [, prefix, position] = interaction.data.custom_id.split(':'); // posnick:HP:ZDM
+  const guildId = interaction.guild_id;
+  const userId = interaction.member?.user?.id;
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}`, 'Content-Type': 'application/json' };
+
+  const currentNick = interaction.member?.nick || interaction.member?.user?.username || 'Unbekannt';
+  const baseName = currentNick.split('|')[0].trim();
+
+  const tags = { HP: [], NP: [] };
+  const tagRegex = /(HP|NP):\s*([A-ZÄÖÜ,]+)/g;
+  let match;
+  while ((match = tagRegex.exec(currentNick)) !== null) {
+    tags[match[1]] = match[2].split(',').filter(Boolean);
+  }
+
+  const list = tags[prefix];
+  const idx = list.indexOf(position);
+  if (idx === -1) {
+    list.push(position);
+  } else {
+    list.splice(idx, 1);
+  }
+
+  const parts = [baseName];
+  if (tags.HP.length > 0) parts.push(`HP:${tags.HP.join(',')}`);
+  if (tags.NP.length > 0) parts.push(`NP: ${tags.NP.join(',')}`);
+  let newNick = parts.join(' | ');
+  if (newNick.length > 32) newNick = newNick.slice(0, 32);
+
+  const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
+    method: 'PATCH',
+    headers: authHeader,
+    body: JSON.stringify({ nick: newNick }),
+  });
+
+  if (!res.ok) {
+    return json(200, {
+      type: 4,
+      data: {
+        content: `Konnte Nickname nicht ändern. Prüfe, ob der Bot "Nicknamen verwalten" darf und über dir in der Rollen-Reihenfolge steht. Server-Owner können per Bot generell nicht umbenannt werden (Discord-Beschränkung).`,
+        flags: 64,
+      },
+    });
+  }
+
+  return json(200, {
+    type: 4,
+    data: { content: `✅ Nickname aktualisiert: **${newNick}**`, flags: 64 },
+  });
+}
+
+// ---------- Rollen-Auswahl (/rolle) ----------
+const GENERAL_ROLES = ['Tester', 'Aushilfe'];
+
+function buildRoleComponents() {
+  const rows = [];
+  for (let i = 0; i < GENERAL_ROLES.length; i += 5) {
+    const chunk = GENERAL_ROLES.slice(i, i + 5);
+    rows.push({
+      type: 1,
+      components: chunk.map((p) => ({ type: 2, style: 1, label: p, custom_id: `genrole:${p}` })),
+    });
+  }
+  return rows;
+}
+
+async function handleRoleCommand() {
+  return json(200, {
+    type: 4,
+    data: {
+      embeds: [
+        {
+          title: 'Rollenwahl',
+          description: 'Klick auf eine Rolle, um sie zu erhalten. Nochmal klicken entfernt sie wieder.',
+          color: 0x000000,
+        },
+      ],
+      components: buildRoleComponents(),
+    },
+  });
+}
+
+async function handleRoleButton(interaction) {
+  const roleName = interaction.data.custom_id.split(':')[1];
+  const guildId = interaction.guild_id;
+  const userId = interaction.member?.user?.id;
+  const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
+
+  const rolesRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader });
+  if (!rolesRes.ok) {
+    return json(200, { type: 4, data: { content: 'Konnte Rollen nicht laden.', flags: 64 } });
+  }
+  const roles = await rolesRes.json();
+  const role = roles.find((r) => r.name === roleName);
+
+  if (!role) {
+    return json(200, {
+      type: 4,
+      data: {
+        content: `Es gibt noch keine Rolle namens "${roleName}" auf diesem Server. Bitte zuerst eine Rolle mit exakt diesem Namen anlegen.`,
+        flags: 64,
+      },
+    });
+  }
+
+  const hasRole = (interaction.member?.roles || []).includes(role.id);
+  const method = hasRole ? 'DELETE' : 'PUT';
+
+  const res = await fetch(
+    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${role.id}`,
+    { method, headers: authHeader }
+  );
+
+  if (!res.ok) {
+    return json(200, {
+      type: 4,
+      data: {
+        content: `Konnte Rolle nicht ${hasRole ? 'entfernen' : 'vergeben'}. Prüfe, ob die Bot-Rolle über "${roleName}" in der Rollen-Reihenfolge steht und der Bot "Rollen verwalten" darf.`,
+        flags: 64,
+      },
+    });
+  }
+
+  return json(200, {
+    type: 4,
+    data: {
+      content: hasRole ? `❌ Rolle **${roleName}** entfernt.` : `✅ Rolle **${roleName}** zugewiesen.`,
+      flags: 64,
+    },
+  });
+}
+
+// ---------- Handler ----------
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') return json(405, { error: 'method not allowed' });
+  if (!verifySignature(event)) return json(401, { error: 'invalid request signature' });
+
+  const interaction = JSON.parse(event.body);
+
+  if (interaction.type === 1) return json(200, { type: 1 }); // PING -> PONG
+
+  const store = getStore({
+    name: 'rsvp-events',
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_BLOBS_TOKEN,
+  });
+
+  if (interaction.type === 2 && interaction.data?.name === 'event') {
+    return handleCreateEvent(interaction, store);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'mitglieder') {
+    return handleMembersCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'position') {
+    return handlePositionCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'rolle') {
+    return handleRoleCommand();
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'quiz') {
+    const quizStore = getStore({
+      name: 'quiz-sessions',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_BLOBS_TOKEN,
+    });
+    return handleQuizStart(interaction, quizStore);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'rentner') {
+    return handleRentnerCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'aufstellung') {
+    return handleAufstellungCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'aufstellungvorschlag') {
+    return handleAufstellungVorschlagCommand(interaction);
+  }
+
+  if (interaction.type === 3) {
+    if (interaction.data.custom_id.startsWith('posnick:')) {
+      return handlePositionNickButton(interaction);
+    }
+    if (interaction.data.custom_id.startsWith('genrole:')) {
+      return handleRoleButton(interaction);
+    }
+    if (interaction.data.custom_id.startsWith('quiz:')) {
+      const quizStore = getStore({
+        name: 'quiz-sessions',
+        siteID: process.env.NETLIFY_SITE_ID,
+        token: process.env.NETLIFY_BLOBS_TOKEN,
       });
-
-      document.querySelectorAll('select[data-pos]').forEach((sel) => {
-        sel.addEventListener('change', () => {
-          const marker = document.querySelector('.pitch-marker[data-marker="' + sel.dataset.pos + '"]');
-          if (marker) {
-            marker.querySelector('.marker-name').textContent = sel.value || '—';
-          }
-        });
-      });
-
-      postBtn.addEventListener('click', async () => {
-        const positions = {};
-        document.querySelectorAll('[data-pos]').forEach((sel) => {
-          if (sel.value) positions[sel.dataset.pos] = sel.value;
-        });
-        const team = document.getElementById('team-select').value;
-        const channelId = document.getElementById('channel-select').value;
-        const description = document.getElementById('description-input').value;
-
-        if (!channelId) {
-          statusEl.textContent = '❌ Bitte einen Kanal auswählen.';
-          statusEl.className = 'error';
-          return;
-        }
-
-        postBtn.disabled = true;
-        statusEl.textContent = 'Erstelle Bild vom Spielfeld …';
-        statusEl.className = '';
-
-        try {
-          const pitchEl = document.querySelector('.pitch');
-          const canvas = await html2canvas(pitchEl, { backgroundColor: null, scale: 2 });
-          const image = canvas.toDataURL('image/png');
-
-          statusEl.textContent = 'Wird gepostet …';
-
-          const res = await fetch('/.netlify/functions/post-aufstellung', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ team, channelId, positions, description, image }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            statusEl.textContent = '✅ Aufstellung wurde gepostet!';
-            statusEl.className = 'success';
-          } else {
-            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Unbekannt');
-            statusEl.className = 'error';
-          }
-        } catch (e) {
-          statusEl.textContent = '❌ Fehler: ' + (e && e.message ? e.message : String(e));
-          statusEl.className = 'error';
-        } finally {
-          postBtn.disabled = false;
-        }
-      });
-    })();
-  </script>
-
-  <script>
-    (function () {
-      const table = document.getElementById('members-table');
-      const tbody = table.querySelector('tbody');
-      const countLine = document.getElementById('count-line');
-      const filterButtons = document.querySelectorAll('.filter-btn');
-      let currentRole = '__all__';
-      let sortKey = 'name';
-      let sortAsc = true;
-
-      function applyFilter() {
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        let visible = 0;
-        rows.forEach((row) => {
-          const roles = (row.dataset.roles || '').split('|');
-          const match = currentRole === '__all__' || roles.includes(currentRole);
-          row.classList.toggle('hidden', !match);
-          if (match) visible++;
-        });
-        countLine.textContent = visible + ' Mitglieder' + (currentRole === '__all__' ? '' : ' (gefiltert nach "' + currentRole + '")');
+      if (interaction.data.custom_id.startsWith('quiz:answer:')) {
+        return handleQuizAnswer(interaction, quizStore);
       }
-
-      filterButtons.forEach((btn) => {
-        btn.addEventListener('click', () => {
-          filterButtons.forEach((b) => b.classList.remove('active'));
-          btn.classList.add('active');
-          currentRole = btn.dataset.role;
-          applyFilter();
-        });
-      });
-
-      function cellText(row, key) {
-        const cellIndex = { name: 0, roles: 1, hp: 2, np: 3 }[key];
-        return row.children[cellIndex].textContent.trim().toLowerCase();
+      if (interaction.data.custom_id.startsWith('quiz:next:')) {
+        return handleQuizNext(interaction, quizStore);
       }
+    }
+    return handleButton(interaction, store);
+  }
 
-      function applySort() {
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        rows.sort((a, b) => {
-          const av = cellText(a, sortKey);
-          const bv = cellText(b, sortKey);
-          if (av < bv) return sortAsc ? -1 : 1;
-          if (av > bv) return sortAsc ? 1 : -1;
-          return 0;
-        });
-        rows.forEach((row) => tbody.appendChild(row));
-      }
-
-      table.querySelectorAll('th[data-sort]').forEach((th) => {
-        th.addEventListener('click', () => {
-          const key = th.dataset.sort;
-          if (sortKey === key) {
-            sortAsc = !sortAsc;
-          } else {
-            sortKey = key;
-            sortAsc = true;
-          }
-          table.querySelectorAll('th .arrow').forEach((a) => (a.textContent = '↕'));
-          th.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓';
-          applySort();
-        });
-      });
-    })();
-  </script>
-</body>
-</html>`;
-
-  return {
-    statusCode: 200,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    body: html,
-  };
+  return json(400, { error: 'unhandled interaction type' });
 };

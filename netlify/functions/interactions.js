@@ -407,9 +407,10 @@ async function handleButton(interaction, store) {
 
   const member = interaction.member;
   const roleName = await getTopRoleName(interaction.guild_id, member?.roles);
+  const rawNick = member?.nick || member?.user?.username || interaction.user?.username || 'Unbekannt';
   const user = {
     id: member?.user?.id || interaction.user?.id,
-    name: member?.nick || member?.user?.username || interaction.user?.username || 'Unbekannt',
+    name: rawNick.split('|')[0].trim(),
     role: roleName,
   };
 

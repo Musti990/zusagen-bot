@@ -2,6 +2,8 @@
 // Mit Filter-Sidebar (nach Rolle) und sortierbaren Spalten (clientseitig, kein Reload nötig).
 // Erreichbar unter: https://DEIN-SITE.netlify.app/.netlify/functions/members-page
 
+const { getStore } = require('@netlify/blobs');
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -22,6 +24,41 @@ function parseHpNp(nick) {
   };
 }
 
+// Lädt alle gespeicherten /event-Abstimmungen (aus derselben Blobs-Datenbank wie interactions.js)
+// und gibt sie mit Titel, Zeitstempel und den Namen der "Accepted"-Liste zurück.
+async function loadEvents(guildId) {
+  try {
+    const store = getStore({
+      name: 'rsvp-events',
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_BLOBS_TOKEN,
+    });
+    const listResult = await store.list();
+    const keys = (listResult.blobs || []).map((b) => b.key);
+
+    const events = [];
+    for (const key of keys) {
+      try {
+        const ev = await store.get(key, { type: 'json' });
+        if (ev && (!guildId || !ev.guildId || ev.guildId === guildId)) {
+          events.push({
+            id: key,
+            title: ev.title || 'Ohne Titel',
+            timestamp: ev.timestamp || 0,
+            accepted: (ev.accepted || []).map((u) => u.name),
+          });
+        }
+      } catch {
+        // einzelnes fehlerhaftes Event überspringen, Rest trotzdem laden
+      }
+    }
+    events.sort((a, b) => b.timestamp - a.timestamp);
+    return events.slice(0, 30);
+  } catch {
+    return [];
+  }
+}
+
 exports.handler = async (event) => {
   const guildId = event.queryStringParameters?.guild || process.env.GUILD_ID;
 
@@ -35,10 +72,11 @@ exports.handler = async (event) => {
 
   const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
 
-  const [rolesRes, membersRes, channelsRes] = await Promise.all([
+  const [rolesRes, membersRes, channelsRes, votingEvents] = await Promise.all([
     fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader }),
     fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, { headers: authHeader }),
     fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, { headers: authHeader }),
+    loadEvents(guildId),
   ]);
 
   if (!rolesRes.ok || !membersRes.ok) {
@@ -106,6 +144,20 @@ exports.handler = async (event) => {
   const channelOptions = textChannels
     .map((c) => `<option value="${escapeAttr(c.id)}">#${escapeHtml(c.name)}</option>`)
     .join('');
+
+  const eventOptions = [
+    '<option value="">— Kein Event / alle Spieler —</option>',
+    ...votingEvents.map((ev) => {
+      const dateLabel = ev.timestamp ? new Date(ev.timestamp * 1000).toLocaleDateString('de-DE') : '';
+      return `<option value="${escapeAttr(ev.id)}">${escapeHtml(ev.title)}${dateLabel ? ' (' + dateLabel + ')' : ''} — ${ev.accepted.length} zugesagt</option>`;
+    }),
+  ].join('');
+
+  // Zugesagt-Namen pro Event als JSON einbetten, damit die Positions-Dropdowns clientseitig
+  // ohne weiteren Serverkontakt darauf gefiltert werden können.
+  const eventAcceptedJson = JSON.stringify(
+    Object.fromEntries(votingEvents.map((ev) => [ev.id, ev.accepted]))
+  ).replace(/</g, '\\u003c');
 
   // Formation-Code -> welcher HP/NP-Tag-Code dafür zählt (LS/RS nutzen den generischen "ST"-Tag aus /position)
   const POSITION_TO_TAG = {
@@ -230,6 +282,12 @@ exports.handler = async (event) => {
   .builder-columns { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
   .builder-fields { flex: 1 1 320px; min-width: 280px; }
   .pitch-preview { flex: 0 0 260px; }
+  .accepted-box { margin-top: 0.75rem; background: #0f0f12; border: 1px solid #26262e; border-radius: 10px; padding: 0.75rem; }
+  .accepted-box h4 { margin: 0 0 0.4rem; font-size: 0.85rem; color: #9ca3af; }
+  .accepted-hint { font-size: 0.75rem; color: #6b7280; margin: 0; }
+  #accepted-list { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+  #accepted-list li { padding: 0.2rem 0; border-bottom: 1px solid #1f1f27; }
+  #accepted-list li:last-child { border-bottom: none; }
   .pitch {
     position: relative;
     width: 100%;
@@ -386,6 +444,12 @@ exports.handler = async (event) => {
   <div class="tab-panel" id="tab-aufstellung">
       <section class="lineup-builder">
         <h2>Aufstellung erstellen (3-5-2)</h2>
+
+        <label class="top-field full-width">
+          <span>Von Abstimmung übernehmen (nur Zugesagte anzeigen)</span>
+          <select id="event-select">${eventOptions}</select>
+        </label>
+
         <div class="lineup-top-row">
           <label class="top-field">
             <span>Mannschaft</span>
@@ -420,12 +484,18 @@ exports.handler = async (event) => {
               ${pitchLinesHtml}
               ${pitchMarkersHtml}
             </div>
+            <div class="accepted-box" id="accepted-box">
+              <h4>✅ Zugesagt</h4>
+              <p class="accepted-hint">Wähle oben ein Event, um die Ja-Stimmen zu sehen.</p>
+              <ul id="accepted-list"></ul>
+            </div>
           </div>
         </div>
 
         <button id="post-btn">In Discord posten</button>
         <p id="post-status"></p>
       </section>
+
   </div>
 
   <script>
@@ -505,12 +575,68 @@ exports.handler = async (event) => {
     })();
   </script>
   <script>
+    window.__EVENT_ACCEPTED__ = ${eventAcceptedJson};
+  </script>
+  <script>
     (function () {
       const postBtn = document.getElementById('post-btn');
       const statusEl = document.getElementById('post-status');
       const showAllToggle = document.getElementById('show-all-toggle');
+      const eventSelect = document.getElementById('event-select');
+      const acceptedList = document.getElementById('accepted-list');
+      const acceptedHint = document.querySelector('.accepted-hint');
+
+      // Original-Optionen jedes Positions-Dropdowns merken, um sie wiederherstellen zu können
+      const originalOptionsHtml = new Map();
+      document.querySelectorAll('select[data-pos]').forEach((sel) => {
+        originalOptionsHtml.set(sel.dataset.pos, sel.innerHTML);
+      });
+
+      function setSelectOptions(sel, names) {
+        const current = sel.value;
+        let html = '<option value="">—</option>';
+        names.forEach((n) => {
+          const opt = document.createElement('option');
+          opt.value = n;
+          opt.textContent = n;
+          html += opt.outerHTML;
+        });
+        sel.innerHTML = html;
+        sel.classList.remove('filtered'); // Andere-Spieler-Ausblendung ist hier irrelevant, da eh schon gefiltert
+        if (names.includes(current)) sel.value = current;
+      }
+
+      function applyEventFilter() {
+        const eventId = eventSelect.value;
+        const accepted = eventId ? window.__EVENT_ACCEPTED__[eventId] || [] : null;
+
+        document.querySelectorAll('select[data-pos]').forEach((sel) => {
+          if (accepted) {
+            setSelectOptions(sel, accepted);
+          } else {
+            sel.innerHTML = originalOptionsHtml.get(sel.dataset.pos);
+            sel.classList.toggle('filtered', !showAllToggle.checked);
+          }
+        });
+
+        if (accepted) {
+          acceptedHint.style.display = 'none';
+          acceptedList.innerHTML = '';
+          accepted.forEach((n) => {
+            const li = document.createElement('li');
+            li.textContent = n;
+            acceptedList.appendChild(li);
+          });
+        } else {
+          acceptedHint.style.display = 'block';
+          acceptedList.innerHTML = '';
+        }
+      }
+
+      eventSelect.addEventListener('change', applyEventFilter);
 
       showAllToggle.addEventListener('change', () => {
+        if (eventSelect.value) return; // bei aktivem Event-Filter irrelevant
         document.querySelectorAll('select.pos-select').forEach((sel) => {
           sel.classList.toggle('filtered', !showAllToggle.checked);
         });

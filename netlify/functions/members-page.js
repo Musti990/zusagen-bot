@@ -107,9 +107,27 @@ exports.handler = async (event) => {
     .map((c) => `<option value="${escapeAttr(c.id)}">#${escapeHtml(c.name)}</option>`)
     .join('');
 
-  const playerOptions =
-    '<option value="">—</option>' +
-    rows.map((r) => `<option value="${escapeAttr(r.baseName)}">${escapeHtml(r.baseName)}</option>`).join('');
+  // Formation-Code -> welcher HP/NP-Tag-Code dafür zählt (LS/RS nutzen den generischen "ST"-Tag aus /position)
+  const POSITION_TO_TAG = {
+    TW: 'TW', LIV: 'LIV', ZIV: 'ZIV', RIV: 'RIV',
+    LM: 'LM', RM: 'RM', ZDM: 'ZDM', ZDM2: 'ZDM', ZOM: 'ZOM',
+    LS: 'ST', RS: 'ST',
+  };
+
+  function buildPlayerOptions(posCode) {
+    const tag = POSITION_TO_TAG[posCode];
+    const hpMatches = rows.filter((r) => r.hp.includes(tag));
+    const npMatches = rows.filter((r) => r.np.includes(tag) && !r.hp.includes(tag));
+    const others = rows.filter((r) => !r.hp.includes(tag) && !r.np.includes(tag));
+
+    const opt = (r) => `<option value="${escapeAttr(r.baseName)}">${escapeHtml(r.baseName)}</option>`;
+
+    let html = '<option value="">—</option>';
+    if (hpMatches.length > 0) html += `<optgroup label="Hauptposition ${tag}">${hpMatches.map(opt).join('')}</optgroup>`;
+    if (npMatches.length > 0) html += `<optgroup label="Nebenposition ${tag}">${npMatches.map(opt).join('')}</optgroup>`;
+    html += `<optgroup label="Andere Spieler" class="others-group">${others.map(opt).join('')}</optgroup>`;
+    return html;
+  }
 
   const POSITION_GROUPS = [
     { title: '🔺 Sturm', codes: ['LS', 'RS'] },
@@ -129,7 +147,7 @@ exports.handler = async (event) => {
               (c) => `
             <label class="pos-field">
               <span>${c === 'ZDM2' ? 'ZDM' : c}</span>
-              <select data-pos="${c}">${playerOptions}</select>
+              <select class="pos-select filtered" data-pos="${c}">${buildPlayerOptions(c)}</select>
             </label>`
             )
             .join('')}
@@ -181,6 +199,9 @@ exports.handler = async (event) => {
   .pos-fields { display: flex; gap: 0.75rem; flex-wrap: wrap; }
   .pos-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; color: #9ca3af; }
   .pos-field select { background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.4rem; font-size: 0.85rem; min-width: 130px; }
+  select.filtered optgroup.others-group { display: none; }
+  .show-all-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #9ca3af; margin-bottom: 1rem; cursor: pointer; }
+  .show-all-toggle input { cursor: pointer; }
   #post-btn { margin-top: 0.5rem; background: #3730a3; color: #fff; border: none; padding: 0.65rem 1.25rem; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
   #post-btn:hover { background: #4338ca; }
   #post-btn:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -235,6 +256,11 @@ exports.handler = async (event) => {
           </label>
         </div>
 
+        <label class="show-all-toggle">
+          <input type="checkbox" id="show-all-toggle" />
+          <span>Alle Spieler anzeigen (statt nur passende Positionen)</span>
+        </label>
+
         ${positionGroupsHtml}
 
         <button id="post-btn">In Discord posten</button>
@@ -247,6 +273,13 @@ exports.handler = async (event) => {
     (function () {
       const postBtn = document.getElementById('post-btn');
       const statusEl = document.getElementById('post-status');
+      const showAllToggle = document.getElementById('show-all-toggle');
+
+      showAllToggle.addEventListener('change', () => {
+        document.querySelectorAll('select.pos-select').forEach((sel) => {
+          sel.classList.toggle('filtered', !showAllToggle.checked);
+        });
+      });
 
       postBtn.addEventListener('click', async () => {
         const positions = {};

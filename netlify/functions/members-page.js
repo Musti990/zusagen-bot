@@ -46,6 +46,7 @@ async function loadEvents(guildId) {
             title: ev.title || 'Ohne Titel',
             timestamp: ev.timestamp || 0,
             accepted: (ev.accepted || []).map((u) => u.name),
+            declined: (ev.declined || []).map((u) => u.name),
           });
         }
       } catch {
@@ -164,10 +165,13 @@ exports.handler = async (event) => {
     })
     .join('');
 
-  // Zugesagt-Namen pro Event als JSON einbetten, damit die Positions-Dropdowns clientseitig
-  // ohne weiteren Serverkontakt darauf gefiltert werden können.
+  // Zugesagt- und Abgesagt-Namen pro Event als JSON einbetten, damit die Positions-Dropdowns
+  // und die Absagen-Liste clientseitig ohne weiteren Serverkontakt darauf reagieren können.
   const eventAcceptedJson = JSON.stringify(
     Object.fromEntries(votingEvents.map((ev) => [ev.id, ev.accepted]))
+  ).replace(/</g, '\\u003c');
+  const eventDeclinedJson = JSON.stringify(
+    Object.fromEntries(votingEvents.map((ev) => [ev.id, ev.declined]))
   ).replace(/</g, '\\u003c');
 
   // Formation-Code -> welcher HP/NP-Tag-Code dafür zählt (LS/RS nutzen den generischen "ST"-Tag aus /position)
@@ -293,12 +297,14 @@ exports.handler = async (event) => {
   .builder-columns { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
   .builder-fields { flex: 1 1 320px; min-width: 280px; }
   .pitch-preview { flex: 0 0 260px; }
-  .accepted-box { margin-top: 0.75rem; background: #0f0f12; border: 1px solid #26262e; border-radius: 10px; padding: 0.75rem; }
-  .accepted-box h4 { margin: 0 0 0.4rem; font-size: 0.85rem; color: #9ca3af; }
-  .accepted-hint { font-size: 0.75rem; color: #6b7280; margin: 0; }
-  #accepted-list { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
-  #accepted-list li { padding: 0.2rem 0; border-bottom: 1px solid #1f1f27; }
-  #accepted-list li:last-child { border-bottom: none; }
+  .side-box { background: #0f0f12; border: 1px solid #26262e; border-radius: 10px; padding: 0.75rem; }
+  .declined-box { flex: 0 0 200px; }
+  .accepted-box { margin-top: 0.75rem; }
+  .side-box h4 { margin: 0 0 0.4rem; font-size: 0.85rem; color: #9ca3af; }
+  .accepted-hint, .declined-hint { font-size: 0.75rem; color: #6b7280; margin: 0; }
+  #accepted-list, #declined-list { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+  #accepted-list li, #declined-list li { padding: 0.2rem 0; border-bottom: 1px solid #1f1f27; }
+  #accepted-list li:last-child, #declined-list li:last-child { border-bottom: none; }
   .event-manage { margin-bottom: 1rem; background: #0f0f12; border: 1px solid #26262e; border-radius: 10px; padding: 0.6rem 0.9rem; }
   .event-manage summary { cursor: pointer; font-size: 0.85rem; color: #9ca3af; }
   .event-manage ul { list-style: none; margin: 0.6rem 0 0; padding: 0; }
@@ -503,6 +509,11 @@ exports.handler = async (event) => {
         </label>
 
         <div class="builder-columns">
+          <div class="side-box declined-box">
+            <h4>❌ Abgesagt</h4>
+            <p class="declined-hint">Wähle oben ein Event, um die Nein-Stimmen zu sehen.</p>
+            <ul id="declined-list"></ul>
+          </div>
           <div class="builder-fields">
             ${positionGroupsHtml}
           </div>
@@ -511,7 +522,7 @@ exports.handler = async (event) => {
               ${pitchLinesHtml}
               ${pitchMarkersHtml}
             </div>
-            <div class="accepted-box" id="accepted-box">
+            <div class="side-box accepted-box" id="accepted-box">
               <h4>✅ Zugesagt</h4>
               <p class="accepted-hint">Wähle oben ein Event, um die Ja-Stimmen zu sehen.</p>
               <ul id="accepted-list"></ul>
@@ -603,6 +614,7 @@ exports.handler = async (event) => {
   </script>
   <script>
     window.__EVENT_ACCEPTED__ = ${eventAcceptedJson};
+    window.__EVENT_DECLINED__ = ${eventDeclinedJson};
   </script>
   <script>
     (function () {
@@ -648,6 +660,8 @@ exports.handler = async (event) => {
       const eventSelect = document.getElementById('event-select');
       const acceptedList = document.getElementById('accepted-list');
       const acceptedHint = document.querySelector('.accepted-hint');
+      const declinedList = document.getElementById('declined-list');
+      const declinedHint = document.querySelector('.declined-hint');
 
       // Original-Optionen jedes Positions-Dropdowns merken, um sie wiederherstellen zu können
       const originalOptionsHtml = new Map();
@@ -672,6 +686,7 @@ exports.handler = async (event) => {
       function applyEventFilter() {
         const eventId = eventSelect.value;
         const accepted = eventId ? window.__EVENT_ACCEPTED__[eventId] || [] : null;
+        const declined = eventId ? window.__EVENT_DECLINED__[eventId] || [] : null;
 
         document.querySelectorAll('select[data-pos]').forEach((sel) => {
           if (accepted) {
@@ -693,6 +708,19 @@ exports.handler = async (event) => {
         } else {
           acceptedHint.style.display = 'block';
           acceptedList.innerHTML = '';
+        }
+
+        if (declined) {
+          declinedHint.style.display = 'none';
+          declinedList.innerHTML = '';
+          declined.forEach((n) => {
+            const li = document.createElement('li');
+            li.textContent = n;
+            declinedList.appendChild(li);
+          });
+        } else {
+          declinedHint.style.display = 'block';
+          declinedList.innerHTML = '';
         }
       }
 

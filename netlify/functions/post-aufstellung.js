@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Ungültige Anfrage' }) };
   }
 
-  const { team, channelId, positions } = data;
+  const { team, channelId, positions, description } = data;
 
   if (!channelId) {
     return { statusCode: 400, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Kein Kanal angegeben' }) };
@@ -27,6 +27,7 @@ exports.handler = async (event) => {
 
   const embed = {
     title: `Aufstellung (3-5-2)${team ? ' — ' + team : ''}`,
+    description: description || undefined,
     color: 0x000000,
     fields: [
       { name: '🔺 Sturm', value: fmtLine(positions, ['LS', 'RS']) },

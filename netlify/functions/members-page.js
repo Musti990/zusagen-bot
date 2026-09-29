@@ -35,9 +35,10 @@ exports.handler = async (event) => {
 
   const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
 
-  const [rolesRes, membersRes] = await Promise.all([
+  const [rolesRes, membersRes, channelsRes] = await Promise.all([
     fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, { headers: authHeader }),
     fetch(`https://discord.com/api/v10/guilds/${guildId}/members?limit=1000`, { headers: authHeader }),
+    fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, { headers: authHeader }),
   ]);
 
   if (!rolesRes.ok || !membersRes.ok) {
@@ -47,6 +48,9 @@ exports.handler = async (event) => {
       body: '<h1>Fehler</h1><p>Konnte Daten nicht von Discord laden. Prüfe DISCORD_TOKEN und ob "Server Members Intent" aktiviert ist.</p>',
     };
   }
+
+  const channels = channelsRes.ok ? await channelsRes.json() : [];
+  const textChannels = channels.filter((c) => c.type === 0).sort((a, b) => (a.position || 0) - (b.position || 0));
 
   const roles = await rolesRes.json();
   const roleById = {};
@@ -99,6 +103,40 @@ exports.handler = async (event) => {
     )
     .join('');
 
+  const channelOptions = textChannels
+    .map((c) => `<option value="${escapeAttr(c.id)}">#${escapeHtml(c.name)}</option>`)
+    .join('');
+
+  const playerOptions =
+    '<option value="">—</option>' +
+    rows.map((r) => `<option value="${escapeAttr(r.baseName)}">${escapeHtml(r.baseName)}</option>`).join('');
+
+  const POSITION_GROUPS = [
+    { title: '🔺 Sturm', codes: ['LS', 'RS'] },
+    { title: '↔️ Flügel', codes: ['LM', 'RM'] },
+    { title: '🔸 Mittelfeld', codes: ['ZDM', 'ZOM', 'ZDM2'] },
+    { title: '🔹 Abwehr', codes: ['LIV', 'ZIV', 'RIV'] },
+    { title: '🥅 Tor', codes: ['TW'] },
+  ];
+
+  const positionGroupsHtml = POSITION_GROUPS.map(
+    (g) => `
+      <div class="pos-group">
+        <h4>${g.title}</h4>
+        <div class="pos-fields">
+          ${g.codes
+            .map(
+              (c) => `
+            <label class="pos-field">
+              <span>${c === 'ZDM2' ? 'ZDM' : c}</span>
+              <select data-pos="${c}">${playerOptions}</select>
+            </label>`
+            )
+            .join('')}
+        </div>
+      </div>`
+  ).join('');
+
   const html = `<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -133,6 +171,22 @@ exports.handler = async (event) => {
   .badge.hp { background: #3730a3; }
   .badge.np { background: #92400e; }
   .count-line { text-align: center; color: #9ca3af; margin-top: 1.25rem; font-size: 0.9rem; }
+  .lineup-builder { background: #17171c; border-radius: 12px; padding: 1.25rem; margin-top: 1.5rem; }
+  .lineup-builder h2 { margin-top: 0; font-size: 1.1rem; }
+  .lineup-top-row { display: flex; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+  .top-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: #9ca3af; flex: 1; min-width: 160px; }
+  .top-field select { background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.5rem; font-size: 0.9rem; }
+  .pos-group { margin-bottom: 1rem; }
+  .pos-group h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: #9ca3af; }
+  .pos-fields { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .pos-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; color: #9ca3af; }
+  .pos-field select { background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.4rem; font-size: 0.85rem; min-width: 130px; }
+  #post-btn { margin-top: 0.5rem; background: #3730a3; color: #fff; border: none; padding: 0.65rem 1.25rem; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
+  #post-btn:hover { background: #4338ca; }
+  #post-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  #post-status { margin-top: 0.6rem; font-size: 0.85rem; }
+  #post-status.success { color: #4ade80; }
+  #post-status.error { color: #f87171; }
   @media (max-width: 700px) {
     .layout { flex-direction: column; }
     aside { flex: 1 1 auto; width: 100%; }
@@ -164,8 +218,77 @@ exports.handler = async (event) => {
         </tbody>
       </table>
       <p class="count-line" id="count-line">${rows.length} Mitglieder</p>
+
+      <section class="lineup-builder">
+        <h2>Aufstellung erstellen (3-5-2)</h2>
+        <div class="lineup-top-row">
+          <label class="top-field">
+            <span>Mannschaft</span>
+            <select id="team-select">
+              <option value="1 Mannschaft">1. Mannschaft</option>
+              <option value="2 Mannschaft">2. Mannschaft</option>
+            </select>
+          </label>
+          <label class="top-field">
+            <span>Kanal</span>
+            <select id="channel-select">${channelOptions}</select>
+          </label>
+        </div>
+
+        ${positionGroupsHtml}
+
+        <button id="post-btn">In Discord posten</button>
+        <p id="post-status"></p>
+      </section>
     </main>
   </div>
+
+  <script>
+    (function () {
+      const postBtn = document.getElementById('post-btn');
+      const statusEl = document.getElementById('post-status');
+
+      postBtn.addEventListener('click', async () => {
+        const positions = {};
+        document.querySelectorAll('[data-pos]').forEach((sel) => {
+          if (sel.value) positions[sel.dataset.pos] = sel.value;
+        });
+        const team = document.getElementById('team-select').value;
+        const channelId = document.getElementById('channel-select').value;
+
+        if (!channelId) {
+          statusEl.textContent = '❌ Bitte einen Kanal auswählen.';
+          statusEl.className = 'error';
+          return;
+        }
+
+        postBtn.disabled = true;
+        statusEl.textContent = 'Wird gepostet …';
+        statusEl.className = '';
+
+        try {
+          const res = await fetch('/.netlify/functions/post-aufstellung', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ team, channelId, positions }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            statusEl.textContent = '✅ Aufstellung wurde gepostet!';
+            statusEl.className = 'success';
+          } else {
+            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Unbekannt');
+            statusEl.className = 'error';
+          }
+        } catch (e) {
+          statusEl.textContent = '❌ Netzwerkfehler beim Posten.';
+          statusEl.className = 'error';
+        } finally {
+          postBtn.disabled = false;
+        }
+      });
+    })();
+  </script>
 
   <script>
     (function () {

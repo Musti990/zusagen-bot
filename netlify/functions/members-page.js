@@ -358,6 +358,7 @@ exports.handler = async (event) => {
     </main>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script>
     (function () {
       const postBtn = document.getElementById('post-btn');
@@ -395,14 +396,20 @@ exports.handler = async (event) => {
         }
 
         postBtn.disabled = true;
-        statusEl.textContent = 'Wird gepostet …';
+        statusEl.textContent = 'Erstelle Bild vom Spielfeld …';
         statusEl.className = '';
 
         try {
+          const pitchEl = document.querySelector('.pitch');
+          const canvas = await html2canvas(pitchEl, { backgroundColor: null, scale: 2 });
+          const image = canvas.toDataURL('image/png');
+
+          statusEl.textContent = 'Wird gepostet …';
+
           const res = await fetch('/.netlify/functions/post-aufstellung', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ team, channelId, positions, description }),
+            body: JSON.stringify({ team, channelId, positions, description, image }),
           });
           const data = await res.json();
           if (res.ok) {

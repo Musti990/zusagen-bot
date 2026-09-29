@@ -53,6 +53,11 @@ async function getTopRoleName(guildId, roleIds) {
   }
 }
 
+// Verhindert, dass Sonderzeichen in Namen (z.B. Unterstriche) von Discord als Formatierung interpretiert werden
+function escapeMd(s) {
+  return String(s).replace(/([_*~`|])/g, '\\$1');
+}
+
 // ---------- Wer hat noch nicht abgestimmt? (EIN kompaktes Feld statt vieler) ----------
 async function getMissingField(guildId, respondedIds, allowedRoleNames) {
   const authHeader = { Authorization: `Bot ${process.env.DISCORD_TOKEN}` };
@@ -85,7 +90,8 @@ async function getMissingField(guildId, respondedIds, allowedRoleNames) {
         .filter((r) => r && !EXCLUDED_ROLES.includes(r.name))
         .sort((a, b) => b.position - a.position);
       const topRole = memberRoles.length > 0 ? memberRoles[0].name : 'Ohne Rolle';
-      const name = m.nick || m.user?.username || 'Unbekannt';
+      const rawNick = m.nick || m.user?.username || 'Unbekannt';
+      const name = escapeMd(rawNick.split('|')[0].trim());
       if (!groups[topRole]) groups[topRole] = [];
       groups[topRole].push(name);
       total++;
@@ -112,7 +118,7 @@ async function buildEmbed(ev) {
   const fmtList = (arr) =>
     arr.length === 0
       ? '—'
-      : arr.map((u, i) => `${i + 1}. **${u.name}**${u.role ? ` — ${u.role}` : ''}`).join('\n');
+      : arr.map((u, i) => `${i + 1}. **${escapeMd(u.name)}**${u.role ? ` — ${escapeMd(u.role)}` : ''}`).join('\n');
 
   const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
   const acceptedHeader =

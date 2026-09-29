@@ -137,6 +137,31 @@ exports.handler = async (event) => {
     { title: '🥅 Tor', codes: ['TW'] },
   ];
 
+  // Koordinaten (% von links/oben) für die Spielfeld-Vorschau, Angriff = oben
+  const PITCH_COORDS = {
+    LS: [35, 15], RS: [65, 15],
+    LM: [8, 42], ZDM: [30, 55], ZOM: [50, 45], ZDM2: [70, 55], RM: [92, 42],
+    LIV: [22, 72], ZIV: [50, 75], RIV: [78, 72],
+    TW: [50, 92],
+  };
+
+  const pitchMarkersHtml = Object.entries(PITCH_COORDS)
+    .map(
+      ([code, [x, y]]) => `
+      <div class="pitch-marker" style="left:${x}%; top:${y}%;" data-marker="${code}">
+        <div class="jersey">${code === 'ZDM2' ? 'ZDM' : code}</div>
+        <div class="marker-name">—</div>
+      </div>`
+    )
+    .join('');
+
+  const pitchLinesHtml = `
+    <div class="pitch-line-h" style="top:50%;"></div>
+    <div class="pitch-circle"></div>
+    <div class="pitch-box top"></div>
+    <div class="pitch-box bottom"></div>
+  `;
+
   const positionGroupsHtml = POSITION_GROUPS.map(
     (g) => `
       <div class="pos-group">
@@ -193,7 +218,55 @@ exports.handler = async (event) => {
   .lineup-builder h2 { margin-top: 0; font-size: 1.1rem; }
   .lineup-top-row { display: flex; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
   .top-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: #9ca3af; flex: 1; min-width: 160px; }
-  .top-field select { background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.5rem; font-size: 0.9rem; }
+  .top-field select, .top-field input[type="text"], .top-field textarea { background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.5rem; font-size: 0.9rem; font-family: inherit; resize: vertical; }
+  .top-field.full-width { flex: 1 1 100%; }
+  .builder-columns { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+  .builder-fields { flex: 1 1 320px; min-width: 280px; }
+  .pitch-preview { flex: 0 0 260px; }
+  .pitch {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    min-height: 360px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: repeating-linear-gradient(to bottom, #2f9e44 0, #2f9e44 12%, #37b24d 12%, #37b24d 24%);
+    border: 3px solid rgba(255,255,255,0.85);
+  }
+  .pitch-line-h { position: absolute; left: 0; right: 0; height: 2px; background: rgba(255,255,255,0.85); }
+  .pitch-circle {
+    position: absolute; left: 50%; top: 50%; width: 90px; height: 90px;
+    border: 2px solid rgba(255,255,255,0.85); border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .pitch-box {
+    position: absolute; left: 20%; width: 60%; height: 14%;
+    border: 2px solid rgba(255,255,255,0.85);
+  }
+  .pitch-box.top { top: 0; border-top: none; }
+  .pitch-box.bottom { bottom: 0; border-bottom: none; }
+  .pitch-marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; align-items: center;
+    gap: 0.15rem;
+    z-index: 2;
+  }
+  .jersey {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #111827; border: 2px solid #fff; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.6rem; font-weight: bold;
+  }
+  .marker-name {
+    background: rgba(0,0,0,0.65); color: #fff; font-size: 0.65rem;
+    padding: 0.1rem 0.35rem; border-radius: 5px; white-space: nowrap;
+    max-width: 90px; overflow: hidden; text-overflow: ellipsis;
+  }
+  @media (max-width: 700px) {
+    .builder-columns { flex-direction: column; }
+    .pitch-preview { flex: 1 1 auto; width: 100%; max-width: 320px; margin: 0 auto; }
+  }
   .pos-group { margin-bottom: 1rem; }
   .pos-group h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: #9ca3af; }
   .pos-fields { display: flex; gap: 0.75rem; flex-wrap: wrap; }
@@ -245,10 +318,11 @@ exports.handler = async (event) => {
         <div class="lineup-top-row">
           <label class="top-field">
             <span>Mannschaft</span>
-            <select id="team-select">
-              <option value="1 Mannschaft">1. Mannschaft</option>
-              <option value="2 Mannschaft">2. Mannschaft</option>
-            </select>
+            <input type="text" id="team-select" value="1 Mannschaft" list="team-suggestions" />
+            <datalist id="team-suggestions">
+              <option value="1 Mannschaft"></option>
+              <option value="2 Mannschaft"></option>
+            </datalist>
           </label>
           <label class="top-field">
             <span>Kanal</span>
@@ -261,7 +335,22 @@ exports.handler = async (event) => {
           <span>Alle Spieler anzeigen (statt nur passende Positionen)</span>
         </label>
 
-        ${positionGroupsHtml}
+        <label class="top-field full-width">
+          <span>Beschreibung (optional)</span>
+          <textarea id="description-input" rows="2" placeholder="z.B. Anpfiff 15 Uhr, bitte pünktlich sein"></textarea>
+        </label>
+
+        <div class="builder-columns">
+          <div class="builder-fields">
+            ${positionGroupsHtml}
+          </div>
+          <div class="pitch-preview">
+            <div class="pitch">
+              ${pitchLinesHtml}
+              ${pitchMarkersHtml}
+            </div>
+          </div>
+        </div>
 
         <button id="post-btn">In Discord posten</button>
         <p id="post-status"></p>
@@ -281,6 +370,15 @@ exports.handler = async (event) => {
         });
       });
 
+      document.querySelectorAll('select[data-pos]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const marker = document.querySelector('.pitch-marker[data-marker="' + sel.dataset.pos + '"]');
+          if (marker) {
+            marker.querySelector('.marker-name').textContent = sel.value || '—';
+          }
+        });
+      });
+
       postBtn.addEventListener('click', async () => {
         const positions = {};
         document.querySelectorAll('[data-pos]').forEach((sel) => {
@@ -288,6 +386,7 @@ exports.handler = async (event) => {
         });
         const team = document.getElementById('team-select').value;
         const channelId = document.getElementById('channel-select').value;
+        const description = document.getElementById('description-input').value;
 
         if (!channelId) {
           statusEl.textContent = '❌ Bitte einen Kanal auswählen.';
@@ -303,7 +402,7 @@ exports.handler = async (event) => {
           const res = await fetch('/.netlify/functions/post-aufstellung', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ team, channelId, positions }),
+            body: JSON.stringify({ team, channelId, positions, description }),
           });
           const data = await res.json();
           if (res.ok) {

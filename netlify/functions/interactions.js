@@ -407,8 +407,10 @@ async function handleButton(interaction, store) {
   }
 
   const member = interaction.member;
-  const roleName = await getTopRoleName(interaction.guild_id, member?.roles);
   const rawNick = member?.nick || member?.user?.username || interaction.user?.username || 'Unbekannt';
+  const hpMatch = rawNick.match(/HP:\s*([A-ZÄÖÜ,0-9]+)/);
+  const position = hpMatch ? hpMatch[1].split(',')[0] : null;
+  const roleName = position || (await getTopRoleName(interaction.guild_id, member?.roles));
   const user = {
     id: member?.user?.id || interaction.user?.id,
     name: rawNick.split('|')[0].trim(),

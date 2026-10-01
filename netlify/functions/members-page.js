@@ -45,8 +45,9 @@ async function loadEvents(guildId) {
             id: key,
             title: ev.title || 'Ohne Titel',
             timestamp: ev.timestamp || 0,
-            accepted: (ev.accepted || []).map((u) => ({ name: u.name, role: u.role || null })),
-            declined: (ev.declined || []).map((u) => ({ name: u.name, role: u.role || null })),
+            accepted: (ev.accepted || []).map((u) => ({ id: u.id, name: u.name, role: u.role || null, votedAt: u.votedAt || null })),
+            maybe: (ev.maybe || []).map((u) => ({ id: u.id, name: u.name, role: u.role || null, votedAt: u.votedAt || null })),
+            declined: (ev.declined || []).map((u) => ({ id: u.id, name: u.name, role: u.role || null, votedAt: u.votedAt || null })),
           });
         }
       } catch {
@@ -58,6 +59,54 @@ async function loadEvents(guildId) {
   } catch {
     return [];
   }
+}
+
+// Scannt die letzten Nachrichten in den (text-)Kanälen, um pro Person den Zeitpunkt
+// der letzten Nachricht zu ermitteln. Kein Dauerzuhören nötig, nur ein Abruf bei Seitenaufruf.
+async function loadMessageActivity(textChannels, authHeader) {
+  const lastMessageByUser = {};
+  const channelsToScan = textChannels.slice(0, 10);
+
+  await Promise.all(
+    channelsToScan.map(async (ch) => {
+      try {
+        const res = await fetch(`https://discord.com/api/v10/channels/${ch.id}/messages?limit=100`, {
+          headers: authHeader,
+        });
+        if (!res.ok) return;
+        const messages = await res.json();
+        for (const msg of messages) {
+          if (!msg.author || msg.author.bot) continue;
+          const ts = new Date(msg.timestamp).getTime();
+          if (!lastMessageByUser[msg.author.id] || ts > lastMessageByUser[msg.author.id]) {
+            lastMessageByUser[msg.author.id] = ts;
+          }
+        }
+      } catch {
+        // einzelnen Kanal überspringen, Rest trotzdem auswerten
+      }
+    })
+  );
+
+  return lastMessageByUser;
+}
+
+// Fasst aus allen gespeicherten Events zusammen, wie oft und wann zuletzt jede Person abgestimmt hat.
+function aggregateVoteActivity(votingEvents) {
+  const stats = {};
+  for (const ev of votingEvents) {
+    for (const list of [ev.accepted, ev.maybe, ev.declined]) {
+      for (const u of list) {
+        if (!u.id) continue;
+        if (!stats[u.id]) stats[u.id] = { count: 0, lastVotedAt: 0 };
+        stats[u.id].count++;
+        if (u.votedAt && u.votedAt > stats[u.id].lastVotedAt) {
+          stats[u.id].lastVotedAt = u.votedAt;
+        }
+      }
+    }
+  }
+  return stats;
 }
 
 exports.handler = async (event) => {
@@ -110,9 +159,31 @@ exports.handler = async (event) => {
         .sort((a, b) => b.position - a.position)
         .map((r) => r.name);
 
-      return { baseName, roles: memberRoles, hp, np };
+      return { id: m.user?.id, baseName, roles: memberRoles, hp, np };
     })
     .sort((a, b) => a.baseName.localeCompare(b.baseName));
+
+  const lastMessageByUser = await loadMessageActivity(textChannels, authHeader);
+  const voteStats = aggregateVoteActivity(votingEvents);
+
+  const ACTIVE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000; // 14 Tage
+  const now = Date.now();
+
+  const activityRows = rows.map((r) => {
+    const lastMessageAt = lastMessageByUser[r.id] || 0;
+    const voteInfo = voteStats[r.id] || { count: 0, lastVotedAt: 0 };
+    const lastActive = Math.max(lastMessageAt, voteInfo.lastVotedAt);
+    const status = lastActive === 0 ? 'unbekannt' : now - lastActive < ACTIVE_WINDOW_MS ? 'aktiv' : 'inaktiv';
+    return {
+      baseName: r.baseName,
+      lastMessageAt,
+      voteCount: voteInfo.count,
+      lastVotedAt: voteInfo.lastVotedAt,
+      lastActive,
+      status,
+    };
+  });
+  activityRows.sort((a, b) => b.lastActive - a.lastActive);
 
   // Rollen für die Sidebar sammeln, priorisiert 1./2. Mannschaft zuerst, Rest alphabetisch danach
   const allRoleNames = [...new Set(rows.flatMap((r) => r.roles))];
@@ -138,6 +209,31 @@ exports.handler = async (event) => {
         <td>${r.roles.map((x) => `<span class="badge">${escapeHtml(x)}</span>`).join(' ') || '—'}</td>
         <td>${r.hp.map((x) => `<span class="badge hp">${escapeHtml(x)}</span>`).join(' ') || '—'}</td>
         <td>${r.np.map((x) => `<span class="badge np">${escapeHtml(x)}</span>`).join(' ') || '—'}</td>
+      </tr>`
+    )
+    .join('');
+
+  function fmtRelative(ms) {
+    if (!ms) return '—';
+    const diffMs = Date.now() - ms;
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (diffDays <= 0) return 'heute';
+    if (diffDays === 1) return 'gestern';
+    if (diffDays < 30) return `vor ${diffDays} Tagen`;
+    return new Date(ms).toLocaleDateString('de-DE');
+  }
+
+  const statusBadge = { aktiv: '🟢 Aktiv', inaktiv: '🔴 Inaktiv', unbekannt: '⚪ Unbekannt' };
+
+  const activityRowsHtml = activityRows
+    .map(
+      (r) => `
+      <tr data-status="${r.status}">
+        <td>${escapeHtml(r.baseName)}</td>
+        <td>${fmtRelative(r.lastMessageAt)}</td>
+        <td>${r.voteCount}</td>
+        <td>${fmtRelative(r.lastVotedAt)}</td>
+        <td>${statusBadge[r.status]}</td>
       </tr>`
     )
     .join('');
@@ -264,7 +360,14 @@ exports.handler = async (event) => {
   .tab-btn.active { background: #3730a3; color: #fff; border-color: #3730a3; }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
-  #tab-event, #tab-aufstellung { max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }
+  #tab-event, #tab-aufstellung, #tab-activity { max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }
+  .activity-sub { color: #9ca3af; font-size: 0.85rem; margin-bottom: 1rem; }
+  #activity-table { width: 100%; border-collapse: collapse; background: #17171c; border-radius: 12px; overflow: hidden; }
+  #activity-table th, #activity-table td { padding: 0.65rem 1rem; text-align: left; border-bottom: 1px solid #26262e; font-size: 0.9rem; }
+  #activity-table th { background: #1f1f27; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #9ca3af; }
+  #activity-table tr:last-child td { border-bottom: none; }
+  #activity-table tr:hover { background: #1c1c23; }
+  #activity-table tr[data-status="inaktiv"] { opacity: 0.6; }
   h1 { margin-bottom: 0.25rem; }
   p.sub { color: #9ca3af; margin-top: 0; }
   .layout { display: flex; gap: 1.5rem; max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; align-items: flex-start; flex-wrap: wrap; }
@@ -386,6 +489,7 @@ exports.handler = async (event) => {
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="tab-members">👥 Mitglieder</button>
+    <button class="tab-btn" data-tab="tab-activity">📊 Aktivität</button>
     <button class="tab-btn" data-tab="tab-event">📅 Event erstellen</button>
     <button class="tab-btn" data-tab="tab-aufstellung">⚽ Aufstellung erstellen</button>
   </nav>
@@ -412,6 +516,26 @@ exports.handler = async (event) => {
         </table>
         <p class="count-line" id="count-line">${rows.length} Mitglieder</p>
       </main>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-activity">
+    <div class="activity-wrap">
+      <p class="activity-sub">Letzte Nachricht aus den letzten 100 Nachrichten in bis zu 10 Kanälen ermittelt. "Aktiv" = Nachricht oder Abstimmung in den letzten 14 Tagen.</p>
+      <table id="activity-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Letzte Nachricht</th>
+            <th>Abstimmungen</th>
+            <th>Letzte Abstimmung</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${activityRowsHtml}
+        </tbody>
+      </table>
     </div>
   </div>
 

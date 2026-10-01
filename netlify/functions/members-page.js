@@ -45,8 +45,8 @@ async function loadEvents(guildId) {
             id: key,
             title: ev.title || 'Ohne Titel',
             timestamp: ev.timestamp || 0,
-            accepted: (ev.accepted || []).map((u) => u.name),
-            declined: (ev.declined || []).map((u) => u.name),
+            accepted: (ev.accepted || []).map((u) => ({ name: u.name, role: u.role || null })),
+            declined: (ev.declined || []).map((u) => ({ name: u.name, role: u.role || null })),
           });
         }
       } catch {
@@ -669,18 +669,18 @@ exports.handler = async (event) => {
         originalOptionsHtml.set(sel.dataset.pos, sel.innerHTML);
       });
 
-      function setSelectOptions(sel, names) {
+      function setSelectOptions(sel, players) {
         const current = sel.value;
         let html = '<option value="">—</option>';
-        names.forEach((n) => {
+        players.forEach((p) => {
           const opt = document.createElement('option');
-          opt.value = n;
-          opt.textContent = n;
+          opt.value = p.name;
+          opt.textContent = p.role ? p.name + ' (' + p.role + ')' : p.name;
           html += opt.outerHTML;
         });
         sel.innerHTML = html;
         sel.classList.remove('filtered'); // Andere-Spieler-Ausblendung ist hier irrelevant, da eh schon gefiltert
-        if (names.includes(current)) sel.value = current;
+        if (players.some((p) => p.name === current)) sel.value = current;
       }
 
       function applyEventFilter() {
@@ -700,9 +700,9 @@ exports.handler = async (event) => {
         if (accepted) {
           acceptedHint.style.display = 'none';
           acceptedList.innerHTML = '';
-          accepted.forEach((n) => {
+          accepted.forEach((p) => {
             const li = document.createElement('li');
-            li.textContent = n;
+            li.textContent = p.role ? p.name + ' (' + p.role + ')' : p.name;
             acceptedList.appendChild(li);
           });
         } else {
@@ -713,9 +713,9 @@ exports.handler = async (event) => {
         if (declined) {
           declinedHint.style.display = 'none';
           declinedList.innerHTML = '';
-          declined.forEach((n) => {
+          declined.forEach((p) => {
             const li = document.createElement('li');
-            li.textContent = n;
+            li.textContent = p.role ? p.name + ' (' + p.role + ')' : p.name;
             declinedList.appendChild(li);
           });
         } else {

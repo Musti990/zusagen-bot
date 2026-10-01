@@ -415,6 +415,7 @@ async function handleButton(interaction, store) {
     id: member?.user?.id || interaction.user?.id,
     name: rawNick.split('|')[0].trim(),
     role: roleName,
+    votedAt: Date.now(),
   };
 
   const inAccepted = ev.accepted.some((u) => u.id === user.id);

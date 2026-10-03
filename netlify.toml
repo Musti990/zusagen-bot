@@ -3,4 +3,4 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["impit"]
+  external_node_modules = ["impit", "sharp"]

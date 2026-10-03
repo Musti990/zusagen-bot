@@ -403,6 +403,11 @@ exports.handler = async (event) => {
   .mr-card .mr-box h4 { margin: 0 0 0.5rem; font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; }
   .mr-card .mr-motm-name { font-size: 1rem; font-weight: 700; }
   .mr-card .mr-goal-row { display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.15rem 0; }
+  .ea-autoload { background: #1a1a22; border: 1px solid #312e81; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; }
+  #mr-ea-load-btn { background: #3730a3; color: #fff; border: none; padding: 0.55rem 1rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; }
+  #mr-ea-load-btn:hover { background: #4338ca; }
+  #mr-ea-status.error { color: #f87171; }
+  #mr-ea-status.success { color: #4ade80; }
   .activity-sub { color: #9ca3af; font-size: 0.85rem; margin-bottom: 1rem; }
   #activity-table { width: 100%; border-collapse: collapse; background: #17171c; border-radius: 12px; overflow: hidden; }
   #activity-table th, #activity-table td { padding: 0.65rem 1rem; text-align: left; border-bottom: 1px solid #26262e; font-size: 0.9rem; }
@@ -751,9 +756,28 @@ exports.handler = async (event) => {
     <section class="lineup-builder">
       <h2>Spielbericht erstellen</h2>
       <p class="activity-sub">
-        Spielerzeilen im Format <code>Position|Name|Tore|Assists|Rating</code>, eine Zeile pro Spieler.
-        Torschützen und Vorlagengeber werden automatisch aus den Tore-/Assist-Spalten ermittelt.
+        Automatisch von EA laden, oder unten manuell eintragen/korrigieren. Format pro Spielerzeile:
+        <code>Position|Name|Tore|Assists|Rating</code>. Torschützen und Vorlagengeber werden automatisch ermittelt.
       </p>
+
+      <div class="lineup-top-row ea-autoload">
+        <label class="top-field">
+          <span>EA Club-ID</span>
+          <input type="text" id="mr-ea-clubid" placeholder="z.B. 834" />
+        </label>
+        <label class="top-field">
+          <span>Plattform</span>
+          <select id="mr-ea-platform">
+            <option value="common-gen5">PS5 / Xbox Series / PC</option>
+            <option value="common-gen4">PS4 / Xbox One</option>
+            <option value="nx">Nintendo Switch</option>
+          </select>
+        </label>
+        <label class="top-field" style="flex: 0 0 auto; align-self: flex-end;">
+          <button id="mr-ea-load-btn" type="button">⬇️ Letztes Spiel von EA laden</button>
+        </label>
+      </div>
+      <p id="mr-ea-status" class="activity-sub"></p>
 
       <div class="lineup-top-row">
         <label class="top-field">
@@ -1106,6 +1130,102 @@ exports.handler = async (event) => {
 
         document.getElementById('mr-card').innerHTML = html;
       }
+
+      function fmtPlayersBlock(playerList) {
+        return playerList
+          .map((p) => [p.pos || '', p.name || 'Unbekannt', p.goals || 0, p.assists || 0, p.rating || '—'].join('|'))
+          .join('\\n');
+      }
+
+      document.getElementById('mr-ea-load-btn').addEventListener('click', async () => {
+        const statusEl = document.getElementById('mr-ea-status');
+        const clubId = document.getElementById('mr-ea-clubid').value.trim();
+        const platform = document.getElementById('mr-ea-platform').value;
+        if (!clubId) {
+          statusEl.textContent = '❌ Bitte eine Club-ID angeben.';
+          statusEl.className = 'activity-sub error';
+          return;
+        }
+
+        statusEl.textContent = 'Lade letztes Spiel von EA …';
+        statusEl.className = 'activity-sub';
+
+        try {
+          const res = await fetch('/.netlify/functions/proclubs-stats?type=matches&clubId=' + clubId + '&platform=' + platform);
+          const data = await res.json();
+          if (!res.ok) {
+            statusEl.textContent = '❌ EA-Fehler: ' + (data.error || 'Unbekannt');
+            statusEl.className = 'activity-sub error';
+            return;
+          }
+
+          const match = Array.isArray(data) ? data[0] : null;
+          if (!match || !match.clubs) {
+            statusEl.textContent = '❌ Keine Spieldaten gefunden (evtl. kein kürzliches Spiel oder unerwartetes Datenformat).';
+            statusEl.className = 'activity-sub error';
+            return;
+          }
+
+          const clubIds = Object.keys(match.clubs);
+          const homeId = clubIds.includes(String(clubId)) ? String(clubId) : clubIds[0];
+          const awayId = clubIds.find((id) => id !== homeId) || clubIds[1] || clubIds[0];
+
+          const homeClub = match.clubs[homeId] || {};
+          const awayClub = match.clubs[awayId] || {};
+          const homeName = (homeClub.details && homeClub.details.name) || homeClub.name || 'Heim';
+          const awayName = (awayClub.details && awayClub.details.name) || awayClub.name || 'Gegner';
+          const homeGoals = homeClub.score ?? homeClub.goals ?? '0';
+          const awayGoals = awayClub.score ?? awayClub.goals ?? '0';
+
+          function sumPlayerStat(playersObj, keys) {
+            let total = 0;
+            Object.values(playersObj || {}).forEach((p) => {
+              for (const k of keys) {
+                if (p[k] !== undefined) { total += Number(p[k]) || 0; break; }
+              }
+            });
+            return total;
+          }
+
+          function extractPlayers(playersObj) {
+            return Object.values(playersObj || {}).map((p) => ({
+              pos: p.pos || p.position || p.favoritePosition || '',
+              name: p.playername || p.name || p.persona || 'Unbekannt',
+              goals: Number(p.goals) || 0,
+              assists: Number(p.assists) || 0,
+              rating: p.rating || p.ratingAve || p.match_rating || '—',
+            }));
+          }
+
+          const homePlayersObj = (match.players && match.players[homeId]) || {};
+          const awayPlayersObj = (match.players && match.players[awayId]) || {};
+
+          document.getElementById('mr-home-name').value = homeName;
+          document.getElementById('mr-away-name').value = awayName;
+          document.getElementById('mr-home-goals').value = homeGoals;
+          document.getElementById('mr-away-goals').value = awayGoals;
+
+          document.getElementById('mr-shots-h').value = sumPlayerStat(homePlayersObj, ['shots', 'shotsStr']);
+          document.getElementById('mr-shots-a').value = sumPlayerStat(awayPlayersObj, ['shots', 'shotsStr']);
+          document.getElementById('mr-passes-h').value = sumPlayerStat(homePlayersObj, ['passesmade', 'passesMade']);
+          document.getElementById('mr-passes-a').value = sumPlayerStat(awayPlayersObj, ['passesmade', 'passesMade']);
+          document.getElementById('mr-duels-h').value = sumPlayerStat(homePlayersObj, ['tacklesmade', 'tacklesMade']);
+          document.getElementById('mr-duels-a').value = sumPlayerStat(awayPlayersObj, ['tacklesmade', 'tacklesMade']);
+          document.getElementById('mr-saves-h').value = sumPlayerStat(homePlayersObj, ['gksaves', 'goalkeeperSaves', 'saves']);
+          document.getElementById('mr-saves-a').value = sumPlayerStat(awayPlayersObj, ['gksaves', 'goalkeeperSaves', 'saves']);
+
+          document.getElementById('mr-players-home').value = fmtPlayersBlock(extractPlayers(homePlayersObj));
+          document.getElementById('mr-players-away').value = fmtPlayersBlock(extractPlayers(awayPlayersObj));
+
+          buildCard();
+
+          statusEl.textContent = '✅ Geladen — bitte kurz prüfen, EA-Felder sind nicht offiziell dokumentiert und können abweichen.';
+          statusEl.className = 'activity-sub success';
+        } catch (e) {
+          statusEl.textContent = '❌ Fehler: ' + (e && e.message ? e.message : String(e));
+          statusEl.className = 'activity-sub error';
+        }
+      });
 
       document.getElementById('mr-preview-btn').addEventListener('click', buildCard);
       buildCard();

@@ -1,8 +1,10 @@
 // Proxy für die inoffizielle EA Pro Clubs API (dieselben Endpunkte, die proclubs.ea.com
-// selbst im Browser aufruft). EA bietet keine offizielle öffentliche API an, aber diese
-// Endpunkte sind ohne Login erreichbar und werden von diversen Community-Tools genutzt.
-// Läuft serverseitig, damit kein CORS-Problem im Browser entsteht und der Club-Lookup
-// bei Bedarf wechselbar bleibt (nicht fest einprogrammiert).
+// selbst im Browser aufruft). Nutzt "impit", um Anfragen auf TLS-Ebene wie einen echten
+// Chrome-Browser aussehen zu lassen — normales fetch() hat einen technischen Fingerabdruck,
+// der von EAs Bot-Schutz (Akamai) erkannt und blockiert wird, unabhängig von Headern.
+
+const { Impit } = require('impit');
+const impit = new Impit({ browser: 'chrome' });
 
 const EA_BASE = 'https://proclubs.ea.com/api/fc';
 
@@ -11,13 +13,13 @@ const TYPE_TO_PATH = {
   overallStats: (clubId, platform) => `/clubs/overallStats?platform=${platform}&clubIds=${clubId}`,
   members: (clubId, platform) => `/members/stats?platform=${platform}&clubId=${clubId}`,
   career: (clubId, platform) => `/members/career/stats?platform=${platform}&clubId=${clubId}`,
-  matches: (clubId, platform) =>
-    `/clubs/matches?platform=${platform}&clubIds=${clubId}&matchType=leagueMatch&maxResultCount=5`,
+  matches: (clubId, platform, matchType) =>
+    `/clubs/matches?platform=${platform}&clubIds=${clubId}&matchType=${matchType || 'leagueMatch'}&maxResultCount=5`,
   search: (clubName, platform) => `/allTimeLeaderboard/search?platform=${platform}&clubName=${encodeURIComponent(clubName)}`,
 };
 
 exports.handler = async (event) => {
-  const { type, clubId, clubName, platform } = event.queryStringParameters || {};
+  const { type, clubId, clubName, platform, matchType } = event.queryStringParameters || {};
   const plat = platform || 'common-gen5'; // common-gen5 = PS5/Xbox Series/PC, common-gen4 = PS4/Xbox One, nx = Switch
 
   if (!type || !TYPE_TO_PATH[type]) {
@@ -34,13 +36,13 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'clubId fehlt' }) };
   }
 
-  const path = type === 'search' ? TYPE_TO_PATH.search(clubName, plat) : TYPE_TO_PATH[type](clubId, plat);
+  const path =
+    type === 'search' ? TYPE_TO_PATH.search(clubName, plat) : type === 'matches' ? TYPE_TO_PATH.matches(clubId, plat, matchType) : TYPE_TO_PATH[type](clubId, plat);
   const url = `${EA_BASE}${path}`;
 
   try {
-    const res = await fetch(url, {
+    const res = await impit.fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'application/json',
         Referer: 'https://www.ea.com/',
       },

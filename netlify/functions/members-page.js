@@ -867,17 +867,31 @@ exports.handler = async (event) => {
         return div.innerHTML;
       }
 
+      async function fetchEaDirectOrProxy(path, query) {
+        // Versuch 1: direkt aus dem Browser (eigene IP, kein Cloud-Block) — funktioniert nur,
+        // falls EA keine strikte CORS-Sperre für fremde Seiten gesetzt hat.
+        try {
+          const directRes = await fetch('https://proclubs.ea.com/api/fc' + path + '?' + query);
+          if (directRes.ok) return { ok: true, data: await directRes.json(), via: 'direct' };
+        } catch (e) {
+          // CORS-Block oder Netzwerkfehler -> weiter zu Versuch 2
+        }
+        // Versuch 2: über unseren Server-Proxy (falls der (noch) nicht geblockt ist)
+        const proxyRes = await fetch('/.netlify/functions/proclubs-stats?' + query);
+        const data = await proxyRes.json();
+        return { ok: proxyRes.ok, data, via: 'proxy' };
+      }
+
       searchBtn.addEventListener('click', async () => {
         const name = searchInput.value.trim();
         if (!name) return;
         searchResults.innerHTML = 'Suche …';
         try {
-          const res = await fetch(
-            '/.netlify/functions/proclubs-stats?type=search&clubName=' + encodeURIComponent(name) + '&platform=' + platformSelect.value
-          );
-          const data = await res.json();
+          const result = await fetchEaDirectOrProxy('/allTimeLeaderboard/search', 'type=search&platform=' + platformSelect.value + '&clubName=' + encodeURIComponent(name));
+          const res = { ok: result.ok };
+          const data = result.data;
           if (!res.ok) {
-            searchResults.innerHTML = '<p style="color:#f87171;">Fehler: ' + escapeHtmlClient(data.error || 'Unbekannt') + '</p>';
+            searchResults.innerHTML = '<p style="color:#f87171;">Fehler (' + result.via + '): ' + escapeHtmlClient(data.error || JSON.stringify(data).slice(0, 150)) + '</p>';
             return;
           }
           const clubs = Array.isArray(data) ? data : data.clubs || [];

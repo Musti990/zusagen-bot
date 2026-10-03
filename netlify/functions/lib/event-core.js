@@ -160,12 +160,17 @@ async function buildEmbed(ev) {
 }
 
 function buildComponents(eventId) {
-  // Drei separate Reihen mit je einem Button, damit sie wie beim Original einzeln
-  // untereinander erscheinen statt nebeneinander in einer Reihe.
+  // Discord zeigt Buttons immer unterhalb der Nachricht, nie seitlich neben Text —
+  // daher eine kompakte Reihe statt mehrerer einzelner Zeilen.
   return [
-    { type: 1, components: [{ type: 2, style: 3, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` }] },
-    { type: 1, components: [{ type: 2, style: 4, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` }] },
-    { type: 1, components: [{ type: 2, style: 2, emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` }] },
+    {
+      type: 1,
+      components: [
+        { type: 2, style: 3, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
+        { type: 2, style: 4, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
+        { type: 2, style: 2, emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` },
+      ],
+    },
   ];
 }
 

@@ -113,22 +113,29 @@ async function getMissingField(guildId, respondedIds, allowedRoleNames) {
   }
 }
 
-// ---------- Discord-Embed bauen ----------
+// ---------- Discord-Embed bauen (im "Scheduled Session"-Stil) ----------
 async function buildEmbed(ev) {
-  const fmtList = (arr) =>
+  const fmtMentions = (arr) =>
     arr.length === 0
-      ? '—'
-      : arr.map((u, i) => `${i + 1}. **${escapeMd(u.name)}**${u.role ? ` — ${escapeMd(u.role)}` : ''}`).join('\n');
+      ? 'None'
+      : arr.map((u) => `<@${u.id}>${u.role ? ` (${escapeMd(u.role)})` : ''}`).join('\n');
 
   const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
   const acceptedHeader =
-    overflow > 0 ? `✅ Accepted (${ev.limit} +${overflow})` : `✅ Accepted (${ev.accepted.length})`;
+    overflow > 0 ? `✅ Can Play (${ev.limit} +${overflow})` : `✅ Can Play (${ev.accepted.length})`;
 
   const fields = [
-    { name: acceptedHeader, value: fmtList(ev.accepted), inline: true },
-    { name: `❓ Maybe (${ev.maybe.length})`, value: fmtList(ev.maybe), inline: true },
-    { name: `❌ Declined (${ev.declined.length})`, value: fmtList(ev.declined), inline: true },
+    { name: 'Time & Date', value: `<t:${ev.timestamp}:F>  (<t:${ev.timestamp}:R>)` },
   ];
+
+  if (ev.team) fields.push({ name: 'Team', value: escapeMd(ev.team) });
+  if (ev.flag) fields.push({ name: 'Info', value: escapeMd(ev.flag) });
+
+  fields.push({ name: 'Notes', value: '```\n' + (ev.beschreibung ? escapeMd(ev.beschreibung) : 'No notes added.') + '\n```' });
+
+  fields.push({ name: acceptedHeader, value: fmtMentions(ev.accepted) });
+  fields.push({ name: `❌ Cannot Play (${ev.declined.length})`, value: fmtMentions(ev.declined) });
+  fields.push({ name: `❓ Tentative (${ev.maybe.length})`, value: fmtMentions(ev.maybe) });
 
   if (ev.guildId) {
     const respondedIds = new Set([...ev.accepted, ...ev.maybe, ...ev.declined].map((u) => u.id));
@@ -138,33 +145,27 @@ async function buildEmbed(ev) {
     if (missingField) fields.push(missingField);
   }
 
+  const description = ev.creatorId
+    ? `<@${ev.creatorId}> has scheduled a Clubs session. Use the buttons below to show your availability.`
+    : `**${escapeMd(ev.creator)}** has scheduled a Clubs session. Use the buttons below to show your availability.`;
+
   return {
-    title: ev.title,
+    title: `${ev.title} Scheduled Session`,
+    description,
     color: 0x000000,
-    description: [
-      ev.team ? `🏆 ${ev.team}` : null,
-      ev.flag ? `🚩 ${ev.flag}` : null,
-      ev.beschreibung ? ev.beschreibung : null,
-      `📅 <t:${ev.timestamp}:D>  ⏰ <t:${ev.timestamp}:t>  ⏳ <t:${ev.timestamp}:R>`,
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    thumbnail: ev.imageUrl ? { url: ev.imageUrl } : undefined,
     fields,
-    image: ev.imageUrl ? { url: ev.imageUrl } : undefined,
     footer: { text: `Erstellt von ${ev.creator}` },
   };
 }
 
 function buildComponents(eventId) {
+  // Drei separate Reihen mit je einem Button, damit sie wie beim Original einzeln
+  // untereinander erscheinen statt nebeneinander in einer Reihe.
   return [
-    {
-      type: 1,
-      components: [
-        { type: 2, style: 2, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
-        { type: 2, style: 2, emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` },
-        { type: 2, style: 2, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
-      ],
-    },
+    { type: 1, components: [{ type: 2, style: 3, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` }] },
+    { type: 1, components: [{ type: 2, style: 4, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` }] },
+    { type: 1, components: [{ type: 2, style: 2, emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` }] },
   ];
 }
 

@@ -859,22 +859,23 @@ exports.handler = async (event) => {
         return div.innerHTML;
       }
 
-      // Hier die eigene Cloudflare-Worker-URL eintragen, sobald deployed (z.B. "https://proclubs-proxy.deinname.workers.dev")
-      window.CLOUDFLARE_WORKER_URL = '';
+      // Funktionierender Weg: Vercel-Function mit "impit" (Chrome-Browser-Fingerabdruck),
+      // umgeht EAs Bot-Schutz erfolgreich — hier die eigene Vercel-URL eintragen.
+      window.VERCEL_PROCLUBS_URL = 'https://zusagen-bot.vercel.app/api/proclubs';
 
       window.fetchEaDirectOrProxy = async function fetchEaDirectOrProxy(path, query) {
-        const CLOUDFLARE_WORKER_URL = window.CLOUDFLARE_WORKER_URL;
-        // Versuch 1: Cloudflare Worker (andere IP-Range als Netlify — EA blockt evtl. nur AWS/Netlify)
-        if (CLOUDFLARE_WORKER_URL) {
+        // Versuch 1: Vercel + impit (bestätigt funktionierend)
+        if (window.VERCEL_PROCLUBS_URL) {
           try {
-            const cfRes = await fetch(CLOUDFLARE_WORKER_URL + '?' + query);
-            const cfData = await cfRes.json();
-            if (cfRes.ok) return { ok: true, data: cfData, via: 'cloudflare' };
+            const vRes = await fetch(window.VERCEL_PROCLUBS_URL + '?' + query);
+            const vData = await vRes.json();
+            if (vRes.ok) return { ok: true, data: vData, via: 'vercel' };
+            return { ok: false, data: vData, via: 'vercel' };
           } catch (e) {
-            // weiter zu Versuch 2
+            // weiter zu Versuch 2, falls Vercel nicht erreichbar ist
           }
         }
-        // Versuch 2: über unseren Netlify-Server-Proxy
+        // Versuch 2: über unseren Netlify-Server-Proxy (bekannt blockiert, nur als letzter Fallback)
         const proxyRes = await fetch('/.netlify/functions/proclubs-stats?' + query);
         const data = await proxyRes.json();
         return { ok: proxyRes.ok, data, via: 'netlify-proxy' };
@@ -1162,27 +1163,27 @@ exports.handler = async (event) => {
         statusEl.className = 'activity-sub';
 
         try {
-          const res = await fetch('/.netlify/functions/proclubs-br?clubId=' + encodeURIComponent(clubId));
-          const data = await res.json();
-          if (!res.ok) {
-            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Unbekannt');
+          const result = await window.fetchEaDirectOrProxy('/clubs/matches', 'type=matches&clubId=' + encodeURIComponent(clubId) + '&platform=common-gen5');
+          const data = result.data;
+          if (!result.ok) {
+            statusEl.textContent = '❌ Fehler (' + result.via + '): ' + (data.error || 'Unbekannt');
             statusEl.className = 'activity-sub error';
             return;
           }
 
           const match = Array.isArray(data) ? data[0] : null;
-          if (!match || !match.teams) {
+          if (!match || !match.clubs) {
             statusEl.textContent = '❌ Keine Spieldaten gefunden.';
             statusEl.className = 'activity-sub error';
             return;
           }
 
-          const teamIds = Object.keys(match.teams);
+          const teamIds = Object.keys(match.clubs);
           const homeId = teamIds.includes(String(clubId)) ? String(clubId) : teamIds[0];
           const awayId = teamIds.find((id) => id !== homeId) || teamIds[1] || teamIds[0];
 
-          const homeTeam = match.teams[homeId] || {};
-          const awayTeam = match.teams[awayId] || {};
+          const homeTeam = { name: (match.clubs[homeId]?.details?.name) || match.clubs[homeId]?.name, goals: match.clubs[homeId]?.score ?? match.clubs[homeId]?.goals };
+          const awayTeam = { name: (match.clubs[awayId]?.details?.name) || match.clubs[awayId]?.name, goals: match.clubs[awayId]?.score ?? match.clubs[awayId]?.goals };
 
           function sumPlayerStat(playersObj, key) {
             let total = 0;

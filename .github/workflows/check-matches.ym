@@ -1,0 +1,14 @@
+name: Pro Clubs Spielbericht Check
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Netlify-Function aufrufen
+        run: |
+          curl -sf "https://zusagen.netlify.app/.netlify/functions/auto-matchreport?secret=${{ secrets.CRON_SECRET }}"

@@ -765,16 +765,8 @@ exports.handler = async (event) => {
           <span>EA Club-ID</span>
           <input type="text" id="mr-ea-clubid" placeholder="z.B. 834" />
         </label>
-        <label class="top-field">
-          <span>Plattform</span>
-          <select id="mr-ea-platform">
-            <option value="common-gen5">PS5 / Xbox Series / PC</option>
-            <option value="common-gen4">PS4 / Xbox One</option>
-            <option value="nx">Nintendo Switch</option>
-          </select>
-        </label>
         <label class="top-field" style="flex: 0 0 auto; align-self: flex-end;">
-          <button id="mr-ea-load-btn" type="button">⬇️ Letztes Spiel von EA laden</button>
+          <button id="mr-ea-load-btn" type="button">⬇️ Letztes Spiel laden</button>
         </label>
       </div>
       <p id="mr-ea-status" class="activity-sub"></p>
@@ -867,19 +859,25 @@ exports.handler = async (event) => {
         return div.innerHTML;
       }
 
-      async function fetchEaDirectOrProxy(path, query) {
-        // Versuch 1: direkt aus dem Browser (eigene IP, kein Cloud-Block) — funktioniert nur,
-        // falls EA keine strikte CORS-Sperre für fremde Seiten gesetzt hat.
-        try {
-          const directRes = await fetch('https://proclubs.ea.com/api/fc' + path + '?' + query);
-          if (directRes.ok) return { ok: true, data: await directRes.json(), via: 'direct' };
-        } catch (e) {
-          // CORS-Block oder Netzwerkfehler -> weiter zu Versuch 2
+      // Hier die eigene Cloudflare-Worker-URL eintragen, sobald deployed (z.B. "https://proclubs-proxy.deinname.workers.dev")
+      window.CLOUDFLARE_WORKER_URL = '';
+
+      window.fetchEaDirectOrProxy = async function fetchEaDirectOrProxy(path, query) {
+        const CLOUDFLARE_WORKER_URL = window.CLOUDFLARE_WORKER_URL;
+        // Versuch 1: Cloudflare Worker (andere IP-Range als Netlify — EA blockt evtl. nur AWS/Netlify)
+        if (CLOUDFLARE_WORKER_URL) {
+          try {
+            const cfRes = await fetch(CLOUDFLARE_WORKER_URL + '?' + query);
+            const cfData = await cfRes.json();
+            if (cfRes.ok) return { ok: true, data: cfData, via: 'cloudflare' };
+          } catch (e) {
+            // weiter zu Versuch 2
+          }
         }
-        // Versuch 2: über unseren Server-Proxy (falls der (noch) nicht geblockt ist)
+        // Versuch 2: über unseren Netlify-Server-Proxy
         const proxyRes = await fetch('/.netlify/functions/proclubs-stats?' + query);
         const data = await proxyRes.json();
-        return { ok: proxyRes.ok, data, via: 'proxy' };
+        return { ok: proxyRes.ok, data, via: 'netlify-proxy' };
       }
 
       searchBtn.addEventListener('click', async () => {
@@ -937,19 +935,19 @@ exports.handler = async (event) => {
         resultsEl.innerHTML = '';
 
         try {
-          const [infoRes, overallRes, membersRes] = await Promise.all([
-            fetch('/.netlify/functions/proclubs-stats?type=info&clubId=' + clubId + '&platform=' + platform),
-            fetch('/.netlify/functions/proclubs-stats?type=overallStats&clubId=' + clubId + '&platform=' + platform),
-            fetch('/.netlify/functions/proclubs-stats?type=members&clubId=' + clubId + '&platform=' + platform),
+          const [infoResult, overallResult, membersResult] = await Promise.all([
+            fetchEaDirectOrProxy('/clubs/info', 'type=info&clubId=' + clubId + '&platform=' + platform),
+            fetchEaDirectOrProxy('/clubs/overallStats', 'type=overallStats&clubId=' + clubId + '&platform=' + platform),
+            fetchEaDirectOrProxy('/members/stats', 'type=members&clubId=' + clubId + '&platform=' + platform),
           ]);
 
-          const infoData = await infoRes.json();
-          const overallData = await overallRes.json();
-          const membersData = await membersRes.json();
+          const infoData = infoResult.data;
+          const overallData = overallResult.data;
+          const membersData = membersResult.data;
 
-          if (!infoRes.ok || !overallRes.ok || !membersRes.ok) {
+          if (!infoResult.ok || !overallResult.ok || !membersResult.ok) {
             const err = infoData.error || overallData.error || membersData.error || 'Unbekannter Fehler';
-            statusEl.textContent = '❌ ' + err;
+            statusEl.textContent = '❌ (' + (infoResult.via || overallResult.via || membersResult.via) + ') ' + err;
             return;
           }
 
@@ -1154,79 +1152,77 @@ exports.handler = async (event) => {
       document.getElementById('mr-ea-load-btn').addEventListener('click', async () => {
         const statusEl = document.getElementById('mr-ea-status');
         const clubId = document.getElementById('mr-ea-clubid').value.trim();
-        const platform = document.getElementById('mr-ea-platform').value;
         if (!clubId) {
           statusEl.textContent = '❌ Bitte eine Club-ID angeben.';
           statusEl.className = 'activity-sub error';
           return;
         }
 
-        statusEl.textContent = 'Lade letztes Spiel von EA …';
+        statusEl.textContent = 'Lade letztes Spiel …';
         statusEl.className = 'activity-sub';
 
         try {
-          const res = await fetch('/.netlify/functions/proclubs-stats?type=matches&clubId=' + clubId + '&platform=' + platform);
+          const res = await fetch('/.netlify/functions/proclubs-br?clubId=' + encodeURIComponent(clubId));
           const data = await res.json();
           if (!res.ok) {
-            statusEl.textContent = '❌ EA-Fehler: ' + (data.error || 'Unbekannt');
+            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Unbekannt');
             statusEl.className = 'activity-sub error';
             return;
           }
 
           const match = Array.isArray(data) ? data[0] : null;
-          if (!match || !match.clubs) {
-            statusEl.textContent = '❌ Keine Spieldaten gefunden (evtl. kein kürzliches Spiel oder unerwartetes Datenformat).';
+          if (!match || !match.teams) {
+            statusEl.textContent = '❌ Keine Spieldaten gefunden.';
             statusEl.className = 'activity-sub error';
             return;
           }
 
-          const clubIds = Object.keys(match.clubs);
-          const homeId = clubIds.includes(String(clubId)) ? String(clubId) : clubIds[0];
-          const awayId = clubIds.find((id) => id !== homeId) || clubIds[1] || clubIds[0];
+          const teamIds = Object.keys(match.teams);
+          const homeId = teamIds.includes(String(clubId)) ? String(clubId) : teamIds[0];
+          const awayId = teamIds.find((id) => id !== homeId) || teamIds[1] || teamIds[0];
 
-          const homeClub = match.clubs[homeId] || {};
-          const awayClub = match.clubs[awayId] || {};
-          const homeName = (homeClub.details && homeClub.details.name) || homeClub.name || 'Heim';
-          const awayName = (awayClub.details && awayClub.details.name) || awayClub.name || 'Gegner';
-          const homeGoals = homeClub.score ?? homeClub.goals ?? '0';
-          const awayGoals = awayClub.score ?? awayClub.goals ?? '0';
+          const homeTeam = match.teams[homeId] || {};
+          const awayTeam = match.teams[awayId] || {};
 
-          function sumPlayerStat(playersObj, keys) {
+          function sumPlayerStat(playersObj, key) {
             let total = 0;
-            Object.values(playersObj || {}).forEach((p) => {
-              for (const k of keys) {
-                if (p[k] !== undefined) { total += Number(p[k]) || 0; break; }
-              }
-            });
+            Object.values(playersObj || {}).forEach((p) => { total += Number(p[key]) || 0; });
             return total;
           }
 
           function extractPlayers(playersObj) {
             return Object.values(playersObj || {}).map((p) => ({
-              pos: p.pos || p.position || p.favoritePosition || '',
-              name: p.playername || p.name || p.persona || 'Unbekannt',
+              pos: p.pos || '',
+              name: p.playername || 'Unbekannt',
               goals: Number(p.goals) || 0,
               assists: Number(p.assists) || 0,
-              rating: p.rating || p.ratingAve || p.match_rating || '—',
+              rating: p.rating || '—',
             }));
           }
 
           const homePlayersObj = (match.players && match.players[homeId]) || {};
           const awayPlayersObj = (match.players && match.players[awayId]) || {};
 
-          document.getElementById('mr-home-name').value = homeName;
-          document.getElementById('mr-away-name').value = awayName;
-          document.getElementById('mr-home-goals').value = homeGoals;
-          document.getElementById('mr-away-goals').value = awayGoals;
+          document.getElementById('mr-home-name').value = homeTeam.name || 'Heim';
+          document.getElementById('mr-away-name').value = awayTeam.name || 'Gegner';
+          document.getElementById('mr-home-goals').value = homeTeam.goals || '0';
+          document.getElementById('mr-away-goals').value = awayTeam.goals || '0';
 
-          document.getElementById('mr-shots-h').value = sumPlayerStat(homePlayersObj, ['shots', 'shotsStr']);
-          document.getElementById('mr-shots-a').value = sumPlayerStat(awayPlayersObj, ['shots', 'shotsStr']);
-          document.getElementById('mr-passes-h').value = sumPlayerStat(homePlayersObj, ['passesmade', 'passesMade']);
-          document.getElementById('mr-passes-a').value = sumPlayerStat(awayPlayersObj, ['passesmade', 'passesMade']);
-          document.getElementById('mr-duels-h').value = sumPlayerStat(homePlayersObj, ['tacklesmade', 'tacklesMade']);
-          document.getElementById('mr-duels-a').value = sumPlayerStat(awayPlayersObj, ['tacklesmade', 'tacklesMade']);
-          document.getElementById('mr-saves-h').value = sumPlayerStat(homePlayersObj, ['gksaves', 'goalkeeperSaves', 'saves']);
-          document.getElementById('mr-saves-a').value = sumPlayerStat(awayPlayersObj, ['gksaves', 'goalkeeperSaves', 'saves']);
+          document.getElementById('mr-shots-h').value = sumPlayerStat(homePlayersObj, 'shots');
+          document.getElementById('mr-shots-a').value = sumPlayerStat(awayPlayersObj, 'shots');
+          document.getElementById('mr-passes-h').value = sumPlayerStat(homePlayersObj, 'passesmade');
+          document.getElementById('mr-passes-a').value = sumPlayerStat(awayPlayersObj, 'passesmade');
+          document.getElementById('mr-duels-h').value = sumPlayerStat(homePlayersObj, 'tacklesmade');
+          document.getElementById('mr-duels-a').value = sumPlayerStat(awayPlayersObj, 'tacklesmade');
+          document.getElementById('mr-saves-h').value = sumPlayerStat(homePlayersObj, 'saves');
+          document.getElementById('mr-saves-a').value = sumPlayerStat(awayPlayersObj, 'saves');
+
+          const homeAttempts = sumPlayerStat(homePlayersObj, 'passattempts');
+          const awayAttempts = sumPlayerStat(awayPlayersObj, 'passattempts');
+          const homeMade = sumPlayerStat(homePlayersObj, 'passesmade');
+          const awayMade = sumPlayerStat(awayPlayersObj, 'passesmade');
+          document.getElementById('mr-passacc-h').value = homeAttempts > 0 ? Math.round((homeMade / homeAttempts) * 100) : 0;
+          document.getElementById('mr-passacc-a').value = awayAttempts > 0 ? Math.round((awayMade / awayAttempts) * 100) : 0;
 
           document.getElementById('mr-players-home').value = fmtPlayersBlock(extractPlayers(homePlayersObj));
           document.getElementById('mr-players-away').value = fmtPlayersBlock(extractPlayers(awayPlayersObj));

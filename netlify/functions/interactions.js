@@ -376,6 +376,7 @@ async function handleCreateEvent(interaction, store) {
     limit: opts.limit,
     timestamp: berlinToUtcTimestamp(year, month, day, hour, minute),
     creator,
+    creatorId: interaction.member?.user?.id || interaction.user?.id || null,
     guildId: interaction.guild_id,
     channelId: interaction.channel_id,
     imageUrl,

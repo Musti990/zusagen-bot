@@ -360,7 +360,49 @@ exports.handler = async (event) => {
   .tab-btn.active { background: #3730a3; color: #fff; border-color: #3730a3; }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
-  #tab-event, #tab-aufstellung, #tab-activity { max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }
+  #tab-event, #tab-aufstellung, #tab-activity, #tab-proclubs { max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }
+  #pc-search-results, #pc-results { margin-top: 1rem; }
+  .pc-club-card { display: flex; align-items: center; gap: 0.75rem; background: #0f0f12; border: 1px solid #26262e; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; }
+  .pc-club-card img { width: 40px; height: 40px; border-radius: 6px; }
+  .pc-club-card button { margin-left: auto; background: #3730a3; color: #fff; border: none; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+  #pc-search-btn, #pc-load-btn { background: #3730a3; color: #fff; border: none; padding: 0.55rem 1.1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
+  #pc-search-btn:hover, #pc-load-btn:hover { background: #4338ca; }
+  .pc-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+  .pc-stat-box { background: #0f0f12; border: 1px solid #26262e; border-radius: 10px; padding: 0.75rem; text-align: center; }
+  .pc-stat-box .value { font-size: 1.3rem; font-weight: bold; }
+  .pc-stat-box .label { font-size: 0.75rem; color: #9ca3af; margin-top: 0.2rem; }
+  #pc-members-table { width: 100%; border-collapse: collapse; background: #17171c; border-radius: 12px; overflow: hidden; }
+  #pc-members-table th, #pc-members-table td { padding: 0.6rem 0.9rem; text-align: left; border-bottom: 1px solid #26262e; font-size: 0.85rem; }
+  #pc-members-table th { background: #1f1f27; font-size: 0.75rem; text-transform: uppercase; color: #9ca3af; }
+  #pc-members-table tr:last-child td { border-bottom: none; }
+
+  .mr-stats-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .mr-dual { display: flex; gap: 0.4rem; }
+  .mr-dual input { width: 70px; background: #0f0f12; color: #e5e5e5; border: 1px solid #2a2a33; border-radius: 8px; padding: 0.4rem; }
+  #mr-preview-btn { background: #26262e; color: #e5e5e5; border: none; padding: 0.55rem 1.1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; margin-right: 0.5rem; }
+  #mr-post-btn { background: #3730a3; color: #fff; border: none; padding: 0.55rem 1.1rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
+  #mr-preview-wrap { margin-top: 1.5rem; max-width: 640px; }
+  .mr-card { background: #111827; border-radius: 14px; padding: 1.5rem; color: #fff; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  .mr-card .mr-banner { text-align: center; margin-bottom: 1.25rem; }
+  .mr-card .mr-vs { display: flex; align-items: center; justify-content: center; gap: 1.5rem; font-size: 2.2rem; font-weight: 800; margin: 0.5rem 0; }
+  .mr-card .mr-team-name { font-size: 1rem; font-weight: 600; flex: 1; text-align: center; }
+  .mr-card .mr-score { background: #1f2937; border-radius: 8px; padding: 0.3rem 1rem; }
+  .mr-card .mr-stat-line { display: grid; grid-template-columns: 50px 1fr 50px; align-items: center; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 0.5rem; }
+  .mr-card .mr-stat-label { text-align: center; color: #9ca3af; font-size: 0.7rem; text-transform: uppercase; }
+  .mr-card .mr-bar-wrap { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #374151; }
+  .mr-card .mr-bar-h { background: #e5e7eb; }
+  .mr-card .mr-bar-a { background: #6b7280; }
+  .mr-card .mr-players { display: flex; gap: 1rem; margin-top: 1.25rem; }
+  .mr-card .mr-players > div { flex: 1; min-width: 0; }
+  .mr-card .mr-players h4 { font-size: 0.8rem; margin: 0 0 0.4rem; color: #9ca3af; }
+  .mr-card table { width: 100%; font-size: 0.7rem; border-collapse: collapse; }
+  .mr-card table td { padding: 0.2rem 0.3rem; border-bottom: 1px solid #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mr-card table td.mr-rating { background: #374151; border-radius: 4px; text-align: center; font-weight: 700; }
+  .mr-card .mr-bottom { display: flex; gap: 1rem; margin-top: 1.25rem; }
+  .mr-card .mr-box { flex: 1; background: #1f2937; border-radius: 10px; padding: 0.75rem; }
+  .mr-card .mr-box h4 { margin: 0 0 0.5rem; font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; }
+  .mr-card .mr-motm-name { font-size: 1rem; font-weight: 700; }
+  .mr-card .mr-goal-row { display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.15rem 0; }
   .activity-sub { color: #9ca3af; font-size: 0.85rem; margin-bottom: 1rem; }
   #activity-table { width: 100%; border-collapse: collapse; background: #17171c; border-radius: 12px; overflow: hidden; }
   #activity-table th, #activity-table td { padding: 0.65rem 1rem; text-align: left; border-bottom: 1px solid #26262e; font-size: 0.9rem; }
@@ -492,6 +534,8 @@ exports.handler = async (event) => {
     <button class="tab-btn" data-tab="tab-activity">📊 Aktivität</button>
     <button class="tab-btn" data-tab="tab-event">📅 Event erstellen</button>
     <button class="tab-btn" data-tab="tab-aufstellung">⚽ Aufstellung erstellen</button>
+    <button class="tab-btn" data-tab="tab-proclubs">🎮 Pro Clubs Stats</button>
+    <button class="tab-btn" data-tab="tab-matchreport">📈 Spielbericht</button>
   </nav>
 
   <div class="tab-panel active" id="tab-members">
@@ -660,6 +704,114 @@ exports.handler = async (event) => {
 
   </div>
 
+  <div class="tab-panel" id="tab-proclubs">
+    <section class="lineup-builder">
+      <h2>EA Pro Clubs Stats</h2>
+      <p class="activity-sub">
+        Inoffizielle EA-Daten — such deinen Club über den Namen oder trag direkt die Club-ID ein
+        (findest du in der URL auf proclubs.ea.com, z.B. ".../overview?clubId=834").
+      </p>
+
+      <div class="lineup-top-row">
+        <label class="top-field">
+          <span>Club-Name suchen</span>
+          <input type="text" id="pc-search-name" placeholder="z.B. FC Hababam" />
+        </label>
+        <label class="top-field">
+          <span>Plattform</span>
+          <select id="pc-platform">
+            <option value="common-gen5">PS5 / Xbox Series / PC</option>
+            <option value="common-gen4">PS4 / Xbox One</option>
+            <option value="nx">Nintendo Switch</option>
+          </select>
+        </label>
+        <label class="top-field" style="flex: 0 0 auto; align-self: flex-end;">
+          <button id="pc-search-btn" type="button">🔍 Suchen</button>
+        </label>
+      </div>
+
+      <div id="pc-search-results"></div>
+
+      <div class="lineup-top-row" style="margin-top: 1rem;">
+        <label class="top-field">
+          <span>Oder direkt Club-ID</span>
+          <input type="text" id="pc-clubid" placeholder="z.B. 834" />
+        </label>
+        <label class="top-field" style="flex: 0 0 auto; align-self: flex-end;">
+          <button id="pc-load-btn" type="button">Statistiken laden</button>
+        </label>
+      </div>
+
+      <p id="pc-status"></p>
+      <div id="pc-results"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" id="tab-matchreport">
+    <section class="lineup-builder">
+      <h2>Spielbericht erstellen</h2>
+      <p class="activity-sub">
+        Spielerzeilen im Format <code>Position|Name|Tore|Assists|Rating</code>, eine Zeile pro Spieler.
+        Torschützen und Vorlagengeber werden automatisch aus den Tore-/Assist-Spalten ermittelt.
+      </p>
+
+      <div class="lineup-top-row">
+        <label class="top-field">
+          <span>Heimteam</span>
+          <input type="text" id="mr-home-name" value="Calcio Strada" />
+        </label>
+        <label class="top-field">
+          <span>Gegner</span>
+          <input type="text" id="mr-away-name" placeholder="z.B. Wolf Assassins" />
+        </label>
+        <label class="top-field">
+          <span>Kanal</span>
+          <select id="mr-channel">${channelOptions}</select>
+        </label>
+      </div>
+
+      <div class="lineup-top-row">
+        <label class="top-field">
+          <span>Tore Heim</span>
+          <input type="number" id="mr-home-goals" value="0" min="0" />
+        </label>
+        <label class="top-field">
+          <span>Tore Gegner</span>
+          <input type="number" id="mr-away-goals" value="0" min="0" />
+        </label>
+      </div>
+
+      <div class="mr-stats-row">
+        <label class="top-field"><span>Schüsse (Heim/Gegner)</span><div class="mr-dual"><input type="number" id="mr-shots-h" value="0" /><input type="number" id="mr-shots-a" value="0" /></div></label>
+        <label class="top-field"><span>Pässe (Heim/Gegner)</span><div class="mr-dual"><input type="number" id="mr-passes-h" value="0" /><input type="number" id="mr-passes-a" value="0" /></div></label>
+        <label class="top-field"><span>Passquote % (Heim/Gegner)</span><div class="mr-dual"><input type="number" id="mr-passacc-h" value="0" /><input type="number" id="mr-passacc-a" value="0" /></div></label>
+        <label class="top-field"><span>Zweikämpfe (Heim/Gegner)</span><div class="mr-dual"><input type="number" id="mr-duels-h" value="0" /><input type="number" id="mr-duels-a" value="0" /></div></label>
+        <label class="top-field"><span>Paraden (Heim/Gegner)</span><div class="mr-dual"><input type="number" id="mr-saves-h" value="0" /><input type="number" id="mr-saves-a" value="0" /></div></label>
+      </div>
+
+      <div class="lineup-top-row">
+        <label class="top-field full-width">
+          <span>Spieler Heim</span>
+          <textarea id="mr-players-home" rows="5" placeholder="TW|Max Mustermann|0|0|6.5&#10;ST|Musti|2|1|8.3"></textarea>
+        </label>
+      </div>
+      <div class="lineup-top-row">
+        <label class="top-field full-width">
+          <span>Spieler Gegner</span>
+          <textarea id="mr-players-away" rows="5" placeholder="TW|Gegner Name|0|0|5.0"></textarea>
+        </label>
+      </div>
+
+      <button id="mr-preview-btn" type="button">Vorschau aktualisieren</button>
+      <button id="mr-post-btn" type="button">In Discord posten</button>
+      <p id="mr-status"></p>
+
+      <div id="mr-preview-wrap">
+        <div id="mr-card" class="mr-card"></div>
+      </div>
+    </section>
+  </div>
+
   <script>
     (function () {
       const tabButtons = document.querySelectorAll('.tab-btn');
@@ -674,7 +826,333 @@ exports.handler = async (event) => {
       });
     })();
   </script>
+  <script>
+    (function () {
+      const searchBtn = document.getElementById('pc-search-btn');
+      const searchInput = document.getElementById('pc-search-name');
+      const searchResults = document.getElementById('pc-search-results');
+      const platformSelect = document.getElementById('pc-platform');
+      const clubIdInput = document.getElementById('pc-clubid');
+      const loadBtn = document.getElementById('pc-load-btn');
+      const statusEl = document.getElementById('pc-status');
+      const resultsEl = document.getElementById('pc-results');
+
+      function escapeHtmlClient(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      searchBtn.addEventListener('click', async () => {
+        const name = searchInput.value.trim();
+        if (!name) return;
+        searchResults.innerHTML = 'Suche …';
+        try {
+          const res = await fetch(
+            '/.netlify/functions/proclubs-stats?type=search&clubName=' + encodeURIComponent(name) + '&platform=' + platformSelect.value
+          );
+          const data = await res.json();
+          if (!res.ok) {
+            searchResults.innerHTML = '<p style="color:#f87171;">Fehler: ' + escapeHtmlClient(data.error || 'Unbekannt') + '</p>';
+            return;
+          }
+          const clubs = Array.isArray(data) ? data : data.clubs || [];
+          if (clubs.length === 0) {
+            searchResults.innerHTML = '<p>Keine Clubs gefunden.</p>';
+            return;
+          }
+          searchResults.innerHTML = clubs
+            .slice(0, 8)
+            .map((c) => {
+              const cid = c.clubId || c.clubInfo?.clubId || '';
+              const cname = c.name || c.clubInfo?.name || 'Unbenannt';
+              return (
+                '<div class="pc-club-card"><span>' +
+                escapeHtmlClient(cname) +
+                ' <small style="color:#6b7280;">(ID: ' +
+                escapeHtmlClient(String(cid)) +
+                ')</small></span><button data-clubid="' +
+                escapeHtmlClient(String(cid)) +
+                '">Laden</button></div>'
+              );
+            })
+            .join('');
+          searchResults.querySelectorAll('button[data-clubid]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              clubIdInput.value = btn.dataset.clubid;
+              loadBtn.click();
+            });
+          });
+        } catch (e) {
+          searchResults.innerHTML = '<p style="color:#f87171;">Fehler: ' + escapeHtmlClient(e.message) + '</p>';
+        }
+      });
+
+      loadBtn.addEventListener('click', async () => {
+        const clubId = clubIdInput.value.trim();
+        if (!clubId) {
+          statusEl.textContent = '❌ Bitte eine Club-ID angeben.';
+          return;
+        }
+        const platform = platformSelect.value;
+        statusEl.textContent = 'Lade Statistiken …';
+        resultsEl.innerHTML = '';
+
+        try {
+          const [infoRes, overallRes, membersRes] = await Promise.all([
+            fetch('/.netlify/functions/proclubs-stats?type=info&clubId=' + clubId + '&platform=' + platform),
+            fetch('/.netlify/functions/proclubs-stats?type=overallStats&clubId=' + clubId + '&platform=' + platform),
+            fetch('/.netlify/functions/proclubs-stats?type=members&clubId=' + clubId + '&platform=' + platform),
+          ]);
+
+          const infoData = await infoRes.json();
+          const overallData = await overallRes.json();
+          const membersData = await membersRes.json();
+
+          if (!infoRes.ok || !overallRes.ok || !membersRes.ok) {
+            const err = infoData.error || overallData.error || membersData.error || 'Unbekannter Fehler';
+            statusEl.textContent = '❌ ' + err;
+            return;
+          }
+
+          statusEl.textContent = '';
+
+          const club = infoData[clubId] || Object.values(infoData)[0] || {};
+          const overall = overallData[0] || overallData[clubId] || {};
+          const members = Array.isArray(membersData) ? membersData : membersData.members || [];
+
+          const clubName = club.name || club.clubName || 'Unbekannter Club';
+          const crestUrl = club.clubInfo?.customKit?.crestAssetId
+            ? null
+            : null; // EA liefert keine direkte Bild-URL, nur eine Asset-ID — kein Crest-Bild anzeigbar
+
+          let html = '<h3 style="margin-bottom:0.75rem;">' + escapeHtmlClient(clubName) + '</h3>';
+
+          html += '<div class="pc-stat-grid">';
+          const statDefs = [
+            ['Siege', overall.wins],
+            ['Niederlagen', overall.losses],
+            ['Unentschieden', overall.ties],
+            ['Tore', overall.goals],
+            ['Gegentore', overall.goalsAgainst],
+            ['Spiele', overall.gamesPlayed],
+          ];
+          statDefs.forEach(([label, value]) => {
+            html +=
+              '<div class="pc-stat-box"><div class="value">' +
+              escapeHtmlClient(value !== undefined ? String(value) : '—') +
+              '</div><div class="label">' +
+              escapeHtmlClient(label) +
+              '</div></div>';
+          });
+          html += '</div>';
+
+          if (members.length > 0) {
+            html +=
+              '<table id="pc-members-table"><thead><tr><th>Name</th><th>Position</th><th>Spiele</th><th>Tore</th><th>Assists</th><th>Rating</th></tr></thead><tbody>';
+            members.forEach((m) => {
+              html +=
+                '<tr><td>' +
+                escapeHtmlClient(m.name || '—') +
+                '</td><td>' +
+                escapeHtmlClient(m.proPos || m.favoritePosition || '—') +
+                '</td><td>' +
+                escapeHtmlClient(String(m.gamesPlayed ?? '—')) +
+                '</td><td>' +
+                escapeHtmlClient(String(m.goals ?? '—')) +
+                '</td><td>' +
+                escapeHtmlClient(String(m.assists ?? '—')) +
+                '</td><td>' +
+                escapeHtmlClient(String(m.ratingAve ?? '—')) +
+                '</td></tr>';
+            });
+            html += '</tbody></table>';
+          } else {
+            html += '<p>Keine Spielerdaten gefunden.</p>';
+          }
+
+          resultsEl.innerHTML = html;
+        } catch (e) {
+          statusEl.textContent = '❌ Fehler: ' + (e && e.message ? e.message : String(e));
+        }
+      });
+    })();
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script>
+    (function () {
+      function escHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      function parsePlayers(text) {
+        return text
+          .split('\\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const parts = line.split('|').map((p) => p.trim());
+            return {
+              pos: parts[0] || '',
+              name: parts[1] || '',
+              goals: Number(parts[2]) || 0,
+              assists: Number(parts[3]) || 0,
+              rating: parts[4] || '—',
+            };
+          });
+      }
+
+      function playerRowsHtml(players) {
+        return players
+          .map(
+            (p) =>
+              '<tr><td>' + escHtml(p.pos) + '</td><td>' + escHtml(p.name) + '</td><td>' + p.goals + '</td><td>' + p.assists + '</td><td class="mr-rating">' + escHtml(p.rating) + '</td></tr>'
+          )
+          .join('');
+      }
+
+      function buildCard() {
+        const homeName = document.getElementById('mr-home-name').value.trim() || 'Heim';
+        const awayName = document.getElementById('mr-away-name').value.trim() || 'Gegner';
+        const homeGoals = document.getElementById('mr-home-goals').value || '0';
+        const awayGoals = document.getElementById('mr-away-goals').value || '0';
+
+        const statRows = [
+          ['Schüsse', 'mr-shots-h', 'mr-shots-a'],
+          ['Pässe', 'mr-passes-h', 'mr-passes-a'],
+          ['Passquote %', 'mr-passacc-h', 'mr-passacc-a'],
+          ['Zweikämpfe', 'mr-duels-h', 'mr-duels-a'],
+          ['Paraden', 'mr-saves-h', 'mr-saves-a'],
+        ];
+
+        let statsHtml = '';
+        statRows.forEach(([label, hId, aId]) => {
+          const hVal = Number(document.getElementById(hId).value) || 0;
+          const aVal = Number(document.getElementById(aId).value) || 0;
+          const total = hVal + aVal || 1;
+          const hPct = (hVal / total) * 100;
+          statsHtml +=
+            '<div class="mr-stat-line"><div style="text-align:right;">' +
+            hVal +
+            '</div><div><div class="mr-stat-label">' +
+            escHtml(label) +
+            '</div><div class="mr-bar-wrap"><div class="mr-bar-h" style="width:' +
+            hPct +
+            '%"></div><div class="mr-bar-a" style="width:' +
+            (100 - hPct) +
+            '%"></div></div></div><div>' +
+            aVal +
+            '</div></div>';
+        });
+
+        const homePlayers = parsePlayers(document.getElementById('mr-players-home').value);
+        const awayPlayers = parsePlayers(document.getElementById('mr-players-away').value);
+        const allPlayers = homePlayers.concat(awayPlayers);
+
+        const scorers = allPlayers
+          .filter((p) => p.goals > 0)
+          .sort((a, b) => b.goals - a.goals)
+          .slice(0, 6);
+        const assisters = allPlayers
+          .filter((p) => p.assists > 0)
+          .sort((a, b) => b.assists - a.assists)
+          .slice(0, 6);
+
+        let motm = null;
+        allPlayers.forEach((p) => {
+          const r = parseFloat(p.rating);
+          if (!isNaN(r) && (!motm || r > motm.ratingNum)) motm = Object.assign({}, p, { ratingNum: r });
+        });
+
+        const html =
+          '<div class="mr-banner"><div class="mr-vs">' +
+          '<div class="mr-team-name">' +
+          escHtml(homeName) +
+          '</div><div class="mr-score">' +
+          escHtml(String(homeGoals)) +
+          ' : ' +
+          escHtml(String(awayGoals)) +
+          '</div><div class="mr-team-name">' +
+          escHtml(awayName) +
+          '</div></div></div>' +
+          statsHtml +
+          '<div class="mr-players">' +
+          '<div><h4>' +
+          escHtml(homeName) +
+          '</h4><table>' +
+          playerRowsHtml(homePlayers) +
+          '</table></div>' +
+          '<div><h4>' +
+          escHtml(awayName) +
+          '</h4><table>' +
+          playerRowsHtml(awayPlayers) +
+          '</table></div>' +
+          '</div>' +
+          '<div class="mr-bottom">' +
+          '<div class="mr-box"><h4>Man of the Match</h4>' +
+          (motm
+            ? '<div class="mr-motm-name">' + escHtml(motm.name) + '</div><div style="color:#9ca3af;font-size:0.8rem;">' + motm.goals + ' Tore · Rating ' + escHtml(motm.rating) + '</div>'
+            : '<div style="color:#9ca3af;">—</div>') +
+          '</div>' +
+          '<div class="mr-box"><h4>Torbeteiligungen</h4>' +
+          (scorers.length === 0 && assisters.length === 0
+            ? '<div style="color:#9ca3af;">—</div>'
+            : scorers.map((p) => '<div class="mr-goal-row"><span>⚽ ' + escHtml(p.name) + '</span><span>' + p.goals + '</span></div>').join('') +
+              assisters.map((p) => '<div class="mr-goal-row"><span>🎯 ' + escHtml(p.name) + '</span><span>' + p.assists + '</span></div>').join('')) +
+          '</div>' +
+          '</div>';
+
+        document.getElementById('mr-card').innerHTML = html;
+      }
+
+      document.getElementById('mr-preview-btn').addEventListener('click', buildCard);
+      buildCard();
+
+      document.getElementById('mr-post-btn').addEventListener('click', async () => {
+        const statusEl = document.getElementById('mr-status');
+        const channelId = document.getElementById('mr-channel').value;
+        if (!channelId) {
+          statusEl.textContent = '❌ Bitte einen Kanal auswählen.';
+          return;
+        }
+
+        buildCard();
+        statusEl.textContent = 'Erstelle Bild …';
+
+        try {
+          const canvas = await html2canvas(document.getElementById('mr-card'), { backgroundColor: '#111827', scale: 2 });
+          const image = canvas.toDataURL('image/png');
+
+          statusEl.textContent = 'Wird gepostet …';
+
+          const homeName = document.getElementById('mr-home-name').value.trim() || 'Heim';
+          const awayName = document.getElementById('mr-away-name').value.trim() || 'Gegner';
+          const homeGoals = document.getElementById('mr-home-goals').value || '0';
+          const awayGoals = document.getElementById('mr-away-goals').value || '0';
+
+          const res = await fetch('/.netlify/functions/post-matchreport', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              channelId,
+              image,
+              caption: homeName + ' ' + homeGoals + ':' + awayGoals + ' ' + awayName,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            statusEl.textContent = '✅ Spielbericht wurde gepostet!';
+          } else {
+            statusEl.textContent = '❌ Fehler: ' + (data.error || 'Unbekannt');
+          }
+        } catch (e) {
+          statusEl.textContent = '❌ Fehler: ' + (e && e.message ? e.message : String(e));
+        }
+      });
+    })();
+  </script>
   <script>
     (function () {
       const btn = document.getElementById('ev-post-btn');

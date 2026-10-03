@@ -118,7 +118,13 @@ async function buildEmbed(ev) {
   const fmtMentions = (arr) =>
     arr.length === 0
       ? 'None'
-      : arr.map((u) => `<@${u.id}>${u.role ? ` (${escapeMd(u.role)})` : ''}`).join('\n');
+      : arr
+          .map((u) => {
+            const roleStr = u.role ? ` (${escapeMd(u.role)})` : '';
+            const timeStr = u.votedAt ? ` — <t:${Math.floor(u.votedAt / 1000)}:R>` : '';
+            return `<@${u.id}>${roleStr}${timeStr}`;
+          })
+          .join('\n');
 
   const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
   const acceptedHeader =
@@ -136,14 +142,6 @@ async function buildEmbed(ev) {
   fields.push({ name: acceptedHeader, value: fmtMentions(ev.accepted) });
   fields.push({ name: `❌ Cannot Play (${ev.declined.length})`, value: fmtMentions(ev.declined) });
   fields.push({ name: `❓ Tentative (${ev.maybe.length})`, value: fmtMentions(ev.maybe) });
-
-  if (ev.guildId) {
-    const respondedIds = new Set([...ev.accepted, ...ev.maybe, ...ev.declined].map((u) => u.id));
-    const allowedRoleNames =
-      ev.team === '2 Mannschaft' ? ['2 Mannschaft', 'Tester'] : ev.team === '1 Mannschaft' ? ['1 Mannschaft'] : null;
-    const missingField = await getMissingField(ev.guildId, respondedIds, allowedRoleNames);
-    if (missingField) fields.push(missingField);
-  }
 
   const description = ev.creatorId
     ? `<@${ev.creatorId}> has scheduled a Clubs session. Use the buttons below to show your availability.`

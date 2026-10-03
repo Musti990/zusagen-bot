@@ -2,6 +2,7 @@
   "dependencies": {
     "@netlify/blobs": "^8.1.0",
     "tweetnacl": "^1.0.3",
-    "impit": "^0.14.5"
+    "impit": "^0.14.5",
+    "sharp": "^0.35.5"
   }
 }

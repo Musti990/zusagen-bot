@@ -1,7 +1,9 @@
 // Vercel Serverless Function: Proxy für die inoffizielle EA Pro Clubs API.
-// Grund für den Versuch: proclubstracker.com (ein funktionierender, bekannter Stats-Tracker)
-// gibt in den eigenen Nutzungsbedingungen an, auf Vercel gehostet zu sein und direkt
-// bei EA abzufragen — anders als Netlify/Cloudflare, die bei uns blockiert wurden.
+// Nutzt "impit", um Anfragen auf TLS-Ebene wie einen echten Chrome-Browser aussehen zu
+// lassen (normales fetch() hat einen technischen "Fingerabdruck", der es als Bot/Skript
+// verrät, unabhängig von Headern wie User-Agent — das versucht EAs Bot-Schutz zu erkennen).
+const { Impit } = require('impit');
+const impit = new Impit({ browser: 'chrome' });
 
 const EA_BASE = 'https://proclubs.ea.com/api/fc';
 
@@ -44,9 +46,8 @@ module.exports = async function handler(req, res) {
   const url = `${EA_BASE}${path}`;
 
   try {
-    const eaRes = await fetch(url, {
+    const eaRes = await impit.fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'application/json',
         Referer: 'https://www.ea.com/',
       },

@@ -22,8 +22,8 @@ const GOLD = '#e6b422'; // nur für Bestnote / Man of the Match
 
 // Akzentfarbe pro Team (wird anhand der Zahl im Teamnamen gewählt)
 const TEAM_STYLES = {
-  '1': { accent: '#1fbf63' }, // Grün
-  '2': { accent: '#e8434f' }, // Rot
+  '1': { accent: '#e8434f' }, // Rot
+  '2': { accent: '#1fbf63' }, // Grün
 };
 const DEFAULT_STYLE = { accent: '#1fbf63' };
 
@@ -372,6 +372,7 @@ function frame(H, accent, num, inner, Wd = W) {
     <linearGradient id="trackGrad" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#3f3f46"/><stop offset="1" stop-color="#27272a"/>
     </linearGradient>
+    <linearGradient id="pitchGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#15181c"/><stop offset="0.5" stop-color="#0e1114"/><stop offset="1" stop-color="#0a0c0e"/></linearGradient>
     <linearGradient id="homeBarGrad" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="${accent}" stop-opacity="0.55"/><stop offset="1" stop-color="${accent}"/>
     </linearGradient>
@@ -683,6 +684,129 @@ function buildKaderSvg(data) {
   <g transform="translate(${KADER_W / 2 - 512},0)">${footer(H - 84)}</g>`, KADER_W);
 }
 
+// ---------------------------------------------------------------------------
+// Aufstellungs-Bild: Spielfeld (Hochformat) mit Positionen je Formation, Calcio-Strada-Look.
+// data = { teamName, title?, formation, players: { <slotKey>: name } }
+const LINEUP_W = 1024;
+
+// Jede Formation: Liste von Slots mit eindeutigem key, Anzeige-Label und Platz auf dem Feld
+// x: 0 (links) .. 1 (rechts), y: 0 (eigenes Tor unten) .. 1 (gegnerisches Tor oben)
+const FORMATIONS = {
+  '4-3-3': [
+    { key: 'TW', label: 'TW', x: 0.5, y: 0.07 },
+    { key: 'LV', label: 'LV', x: 0.15, y: 0.27 }, { key: 'IVL', label: 'IV', x: 0.385, y: 0.23 },
+    { key: 'IVR', label: 'IV', x: 0.615, y: 0.23 }, { key: 'RV', label: 'RV', x: 0.85, y: 0.27 },
+    { key: 'ZM', label: 'ZM', x: 0.3, y: 0.52 }, { key: 'ZDM', label: 'ZDM', x: 0.5, y: 0.45 }, { key: 'ZMR', label: 'ZM', x: 0.7, y: 0.52 },
+    { key: 'LF', label: 'LF', x: 0.2, y: 0.8 }, { key: 'ST', label: 'ST', x: 0.5, y: 0.85 }, { key: 'RF', label: 'RF', x: 0.8, y: 0.8 },
+  ],
+  '4-4-2': [
+    { key: 'TW', label: 'TW', x: 0.5, y: 0.07 },
+    { key: 'LV', label: 'LV', x: 0.15, y: 0.27 }, { key: 'IVL', label: 'IV', x: 0.385, y: 0.23 },
+    { key: 'IVR', label: 'IV', x: 0.615, y: 0.23 }, { key: 'RV', label: 'RV', x: 0.85, y: 0.27 },
+    { key: 'LM', label: 'LM', x: 0.15, y: 0.55 }, { key: 'ZML', label: 'ZM', x: 0.385, y: 0.5 },
+    { key: 'ZMR', label: 'ZM', x: 0.615, y: 0.5 }, { key: 'RM', label: 'RM', x: 0.85, y: 0.55 },
+    { key: 'STL', label: 'ST', x: 0.38, y: 0.84 }, { key: 'STR', label: 'ST', x: 0.62, y: 0.84 },
+  ],
+  '3-5-2': [
+    { key: 'TW', label: 'TW', x: 0.5, y: 0.07 },
+    { key: 'LIV', label: 'LIV', x: 0.27, y: 0.25 }, { key: 'ZIV', label: 'ZIV', x: 0.5, y: 0.22 }, { key: 'RIV', label: 'RIV', x: 0.73, y: 0.25 },
+    { key: 'LM', label: 'LM', x: 0.12, y: 0.52 }, { key: 'ZDM', label: 'ZDM', x: 0.36, y: 0.46 },
+    { key: 'ZDMR', label: 'ZDM', x: 0.64, y: 0.46 }, { key: 'RM', label: 'RM', x: 0.88, y: 0.52 }, { key: 'ZOM', label: 'ZOM', x: 0.5, y: 0.62 },
+    { key: 'LS', label: 'LS', x: 0.38, y: 0.84 }, { key: 'RS', label: 'RS', x: 0.62, y: 0.84 },
+  ],
+  '4-2-3-1': [
+    { key: 'TW', label: 'TW', x: 0.5, y: 0.07 },
+    { key: 'LV', label: 'LV', x: 0.15, y: 0.27 }, { key: 'IVL', label: 'IV', x: 0.385, y: 0.23 },
+    { key: 'IVR', label: 'IV', x: 0.615, y: 0.23 }, { key: 'RV', label: 'RV', x: 0.85, y: 0.27 },
+    { key: 'ZDM', label: 'ZDM', x: 0.38, y: 0.45 }, { key: 'ZDMR', label: 'ZDM', x: 0.62, y: 0.45 },
+    { key: 'LM', label: 'LM', x: 0.18, y: 0.66 }, { key: 'ZOM', label: 'ZOM', x: 0.5, y: 0.64 }, { key: 'RM', label: 'RM', x: 0.82, y: 0.66 },
+    { key: 'ST', label: 'ST', x: 0.5, y: 0.86 },
+  ],
+  '3-4-3': [
+    { key: 'TW', label: 'TW', x: 0.5, y: 0.07 },
+    { key: 'LIV', label: 'LIV', x: 0.27, y: 0.25 }, { key: 'ZIV', label: 'ZIV', x: 0.5, y: 0.22 }, { key: 'RIV', label: 'RIV', x: 0.73, y: 0.25 },
+    { key: 'LM', label: 'LM', x: 0.14, y: 0.52 }, { key: 'ZML', label: 'ZM', x: 0.38, y: 0.48 },
+    { key: 'ZMR', label: 'ZM', x: 0.62, y: 0.48 }, { key: 'RM', label: 'RM', x: 0.86, y: 0.52 },
+    { key: 'LF', label: 'LF', x: 0.22, y: 0.82 }, { key: 'ST', label: 'ST', x: 0.5, y: 0.86 }, { key: 'RF', label: 'RF', x: 0.78, y: 0.82 },
+  ],
+  '5-3-2': [
+    { key: 'TW', label: 'TW', x: 0.5, y: 0.07 },
+    { key: 'LV', label: 'LV', x: 0.1, y: 0.3 }, { key: 'LIV', label: 'LIV', x: 0.3, y: 0.24 }, { key: 'ZIV', label: 'ZIV', x: 0.5, y: 0.22 },
+    { key: 'RIV', label: 'RIV', x: 0.7, y: 0.24 }, { key: 'RV', label: 'RV', x: 0.9, y: 0.3 },
+    { key: 'ZML', label: 'ZM', x: 0.3, y: 0.54 }, { key: 'ZDM', label: 'ZDM', x: 0.5, y: 0.48 }, { key: 'ZMR', label: 'ZM', x: 0.7, y: 0.54 },
+    { key: 'LS', label: 'ST', x: 0.38, y: 0.84 }, { key: 'RS', label: 'ST', x: 0.62, y: 0.84 },
+  ],
+};
+
+function pitchMarkings(px, py, pw, ph, accent) {
+  const line = 'rgba(255,255,255,0.22)';
+  return `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="10" fill="url(#pitchGrad)" stroke="${line}" stroke-width="2"/>
+    ${(() => { let g = ''; for (let i = 1; i < 7; i++) { const x = px + (pw / 7) * i; g += `<rect x="${x - 1}" y="${py}" width="${(pw / 7) * (i % 2 ? 1 : 0)}" height="0"/>`; } return ''; })()}
+    ${Array.from({ length: 6 }, (_, i) => `<rect x="${px}" y="${py + (ph / 6) * i}" width="${pw}" height="${ph / 12}" fill="#ffffff" opacity="${i % 2 ? 0.015 : 0}"/>`).join('')}
+    <line x1="${px}" y1="${py + ph / 2}" x2="${px + pw}" y2="${py + ph / 2}" stroke="${line}" stroke-width="2"/>
+    <circle cx="${px + pw / 2}" cy="${py + ph / 2}" r="${pw * 0.13}" fill="none" stroke="${line}" stroke-width="2"/>
+    <circle cx="${px + pw / 2}" cy="${py + ph / 2}" r="4" fill="${line}"/>
+    <rect x="${px + pw / 2 - pw * 0.22}" y="${py + ph - ph * 0.14}" width="${pw * 0.44}" height="${ph * 0.14}" fill="none" stroke="${line}" stroke-width="2"/>
+    <rect x="${px + pw / 2 - pw * 0.1}" y="${py + ph - ph * 0.055}" width="${pw * 0.2}" height="${ph * 0.055}" fill="none" stroke="${line}" stroke-width="2"/>
+    <rect x="${px + pw / 2 - pw * 0.22}" y="${py}" width="${pw * 0.44}" height="${ph * 0.14}" fill="none" stroke="${line}" stroke-width="2"/>
+    <rect x="${px + pw / 2 - pw * 0.1}" y="${py}" width="${pw * 0.2}" height="${ph * 0.055}" fill="none" stroke="${line}" stroke-width="2"/>`;
+}
+
+function playerToken(cx, cy, label, name, accent) {
+  const has = name && name !== '—';
+  const shirt = has ? accent : '#2a2a31';
+  const nm = truncate(name || '—', 14);
+  return `<g>
+    <ellipse cx="${cx}" cy="${cy + 44}" rx="44" ry="10" fill="#000" opacity="0.35"/>
+    <circle cx="${cx}" cy="${cy}" r="36" fill="#0b0b0e"/>
+    <circle cx="${cx}" cy="${cy}" r="36" fill="${shirt}" fill-opacity="${has ? 0.18 : 0.6}" stroke="${has ? accent : '#4b4b55'}" stroke-width="4"/>
+    <text x="${cx}" y="${cy + 8}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="21">${esc(label)}</text>
+    <rect x="${cx - 82}" y="${cy + 52}" width="164" height="34" rx="7" fill="#0b0b0e" opacity="0.92" stroke="${has ? accent : '#3a3a42'}" stroke-width="1.5"/>
+    <text x="${cx}" y="${cy + 75}" text-anchor="middle" fill="${has ? '#ffffff' : '#6b7280'}" font-family="${FONT}" font-weight="bold" font-size="${fitSize(nm, 150, 20)}">${esc(nm)}</text>
+  </g>`;
+}
+
+function buildLineupSvg(data) {
+  idCounter = 0;
+  const num = teamNumber(data.teamName);
+  const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  const formation = FORMATIONS[data.formation] ? data.formation : '3-5-2';
+  const slots = FORMATIONS[formation];
+  const names = data.players || {};
+
+  const px = 44, pw = LINEUP_W - 88;
+  const py = 300;
+  const ph = 1500;
+  const H = py + ph + 130;
+
+  const tokens = slots
+    .slice()
+    .sort((a, b) => a.y - b.y) // hintere zuerst zeichnen, vordere überlappen sauber
+    .map((s) => playerToken(px + s.x * pw, py + (1 - s.y) * ph, s.label, names[s.key], accent))
+    .join('');
+
+  const filled = slots.filter((s) => names[s.key] && names[s.key] !== '—').length;
+
+  return frame(H, accent, num, `
+  <g transform="translate(40,0)">
+    <text x="0" y="52" fill="#d4d4d8" font-family="${FONT}" font-weight="bold" font-size="15" letter-spacing="6">PRO CLUBS · ${num ? 'TEAM ' + esc(num) : 'AUFSTELLUNG'}</text>
+    ${wordmark(0, 108, 56, 'start', 'transform="skewX(-10) translate(19,0)"')}
+    ${tricolor(0, 122, 330, 5)}
+    <text x="0" y="158" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="22" letter-spacing="5">${esc((data.title || 'AUFSTELLUNG').toUpperCase())}</text>
+    <text x="0" y="186" fill="#a1a1aa" font-family="${FONT}" font-size="15" letter-spacing="4">${filled}/11 BESETZT</text>
+  </g>
+  <g text-anchor="end" font-family="${FONT}" font-weight="bold">
+    <text x="${LINEUP_W - 40}" y="96" fill="#d4d4d8" font-size="15" letter-spacing="4">FORMATION</text>
+    <text x="${LINEUP_W - 40}" y="150" fill="${accent}" font-size="54" letter-spacing="2">${esc(formation)}</text>
+  </g>
+  <text x="${LINEUP_W / 2}" y="258" text-anchor="middle" fill="#e5e7eb" font-family="${FONT}" font-size="18" letter-spacing="7">WIR SIND EINE GROSSE FAMILIE</text>
+
+  ${pitchMarkings(px, py, pw, ph, accent)}
+  ${tokens}
+
+  <g transform="translate(${LINEUP_W / 2 - 512},0)">${footer(H - 84)}</g>`, LINEUP_W);
+}
+
 function buildMatchReportSvg(data) {
   idCounter = 0;
   const num = teamNumber(data.homeName);
@@ -849,4 +973,4 @@ function buildMatchReportSvg(data) {
   </g>`);
 }
 
-module.exports = { buildMatchReportSvg, buildPlayerStatsSvg, buildSessionSummarySvg, buildKaderSvg };
+module.exports = { buildMatchReportSvg, buildPlayerStatsSvg, buildSessionSummarySvg, buildKaderSvg, buildLineupSvg, FORMATIONS };

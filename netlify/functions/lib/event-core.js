@@ -122,7 +122,11 @@ async function buildEmbed(ev) {
           .map((u) => {
             const roleStr = u.role ? ` (${escapeMd(u.role)})` : '';
             const timeStr = u.votedAt ? ` — <t:${Math.floor(u.votedAt / 1000)}:R>` : '';
-            return `<@${u.id}>${roleStr}${timeStr}`;
+            // Namen als Text statt <@ID>-Erwähnung: Discord zeigt Erwähnungen in Embeds nur dann als
+            // Namen an, wenn der Nutzer im eigenen Client gerade geladen ist – sonst erscheint die rohe ID.
+            // voller Nickname inkl. Positionen (z. B. "luca | HP:TW"), ältere Einträge ohne vollen Nick: Basisname
+            const name = u.displayName || u.name;
+            return `${name ? `**${escapeMd(name)}**` : `<@${u.id}>`}${roleStr}${timeStr}`;
           })
           .join('\n');
 

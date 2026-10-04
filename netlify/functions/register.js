@@ -59,6 +59,40 @@ exports.handler = async () => {
       description: 'Postet eine Erwähnung für montelione',
     },
     {
+      name: 'session',
+      description: 'Startet eine Session: prüft alle 2 Minuten auf neue Spiele und postet die Statistiken',
+      options: [
+        {
+          name: 'team',
+          description: 'Welches Team? (leer = beide)',
+          type: 3,
+          required: false,
+          choices: [
+            { name: 'Calcio Strada 1', value: '1' },
+            { name: 'Calcio Strada 2', value: '2' },
+            { name: 'Beide', value: 'beide' },
+          ],
+        },
+      ],
+    },
+    {
+      name: 'sessionend',
+      description: 'Beendet die Session und postet die Bilanz (Spieler nach Ø-Rating sortiert)',
+      options: [
+        {
+          name: 'team',
+          description: 'Welches Team? (leer = beide)',
+          type: 3,
+          required: false,
+          choices: [
+            { name: 'Calcio Strada 1', value: '1' },
+            { name: 'Calcio Strada 2', value: '2' },
+            { name: 'Beide', value: 'beide' },
+          ],
+        },
+      ],
+    },
+    {
       name: 'aufstellung',
       description: 'Erstellt ein Aufstellungsbild für die 3-5-2-Formation',
       options: [

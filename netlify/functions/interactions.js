@@ -7,6 +7,19 @@ const {
   buildComponents,
 } = require('./lib/event-core');
 const { sessionStore, clubsForTeam, getSession, saveSession, newSession } = require('./lib/session-core');
+const {
+  KADER_TEAMS,
+  api: discordApi,
+  getGuildRoles,
+  findKaderRole,
+  isKaderAdmin,
+  getNumbers,
+  setNumbers,
+  getKaderPlayers,
+  buildKaderEmbed,
+  kaderComponents,
+  requestKaderRefresh,
+} = require('./lib/kader-core');
 
 // ---------- Signatur-Prüfung (Pflicht laut Discord) ----------
 function verifySignature(event) {
@@ -721,6 +734,144 @@ async function handleSessionEnd(interaction) {
   return json(200, { type: 4, data: { content, flags: 64 } });
 }
 
+// ---------- /kader + Buttons ----------
+// Antworten an einzelne Admins sind nur für sie sichtbar (flags: 64).
+const ephemeral = (content, extra = {}) => json(200, { type: 4, data: { content, flags: 64, ...extra } });
+const updateEphemeral = (content) => json(200, { type: 7, data: { content, components: [] } });
+const NO_ADMIN = '⛔ Nur Admins können den Kader bearbeiten.';
+
+async function handleKaderCommand(interaction) {
+  if (!(await isKaderAdmin(interaction))) return ephemeral(NO_ADMIN);
+  const team = String((interaction.data.options || []).find((o) => o.name === 'team')?.value || '1');
+  const { role, players } = await getKaderPlayers(interaction.guild_id, team);
+  if (!role) return ephemeral(`⚠️ Die Rolle **${KADER_TEAMS[team].roleName}** gibt es auf dem Server nicht.`);
+
+  // Sofort Liste + Buttons posten, das Bild ergänzt kader-worker ein paar Sekunden später
+  await requestKaderRefresh({
+    action: 'post',
+    team,
+    guildId: interaction.guild_id,
+    appId: interaction.application_id,
+    token: interaction.token,
+  });
+  return json(200, { type: 4, data: { embeds: [buildKaderEmbed(team, players, role.name)], components: kaderComponents(team) } });
+}
+
+function playerOptions(players) {
+  return players.slice(0, 25).map((p) => ({
+    label: `${p.number != null ? '#' + p.number + ' ' : ''}${p.name}`.slice(0, 100),
+    description: p.pos ? `Position: ${p.pos}` : undefined,
+    value: p.id,
+  }));
+}
+
+async function handleKaderButton(interaction) {
+  const [, action, team] = interaction.data.custom_id.split(':');
+  if (!KADER_TEAMS[team]) return ephemeral('Unbekanntes Team.');
+  if (!(await isKaderAdmin(interaction))) return ephemeral(NO_ADMIN);
+  const guildId = interaction.guild_id;
+  const label = KADER_TEAMS[team].label;
+
+  // --- Buttons an der Kader-Nachricht ---
+  if (action === 'add') {
+    return ephemeral(`Wen willst du zum Kader von **${label}** hinzufügen? (bis zu 10 auf einmal)`, {
+      components: [{ type: 1, components: [{ type: 5, custom_id: `kader:addsel:${team}`, placeholder: 'Spieler auswählen…', min_values: 1, max_values: 10 }] }],
+    });
+  }
+  if (action === 'rem' || action === 'num') {
+    const { players } = await getKaderPlayers(guildId, team);
+    if (players.length === 0) return ephemeral(`Im Kader von **${label}** ist noch niemand.`);
+    const remove = action === 'rem';
+    return ephemeral(
+      remove ? `Wen willst du aus dem Kader von **${label}** entfernen?` : `Wem willst du eine Rückennummer geben? (${label})`,
+      {
+        components: [{
+          type: 1,
+          components: [{
+            type: 3,
+            custom_id: `kader:${remove ? 'remsel' : 'numsel'}:${team}`,
+            placeholder: 'Spieler auswählen…',
+            min_values: 1,
+            max_values: remove ? Math.min(10, players.length) : 1,
+            options: playerOptions(players),
+          }],
+        }],
+      }
+    );
+  }
+
+  // --- Auswahl aus den Menüs ---
+  const selected = interaction.data.values || [];
+  if (action === 'addsel' || action === 'remsel') {
+    const role = findKaderRole(await getGuildRoles(guildId), team);
+    if (!role) return updateEphemeral(`⚠️ Die Rolle **${KADER_TEAMS[team].roleName}** gibt es nicht.`);
+    const add = action === 'addsel';
+    const ok = [];
+    const failed = [];
+    for (const userId of selected) {
+      const res = await discordApi(`/guilds/${guildId}/members/${userId}/roles/${role.id}`, {
+        method: add ? 'PUT' : 'DELETE',
+        headers: { 'X-Audit-Log-Reason': encodeURIComponent(`Kader ${label} über Bot`) },
+      });
+      (res.ok ? ok : failed).push(`<@${userId}>`);
+    }
+    if (!add && ok.length) {
+      const numbers = await getNumbers(team);
+      selected.forEach((id) => delete numbers[id]); // Nummer wird wieder frei
+      await setNumbers(team, numbers);
+    }
+    if (ok.length) await requestKaderRefresh({ action: 'refresh', team, guildId });
+    let msg = ok.length ? `✅ ${add ? 'Hinzugefügt' : 'Entfernt'}: ${ok.join(', ')} – der Kader wird gleich aktualisiert.` : '';
+    if (failed.length) msg += `\n⚠️ Nicht geklappt bei ${failed.join(', ')} – die Bot-Rolle muss in den Server-Einstellungen **über** „${role.name}“ stehen.`;
+    return updateEphemeral(msg.trim());
+  }
+
+  if (action === 'numsel') {
+    const userId = selected[0];
+    const current = (await getNumbers(team))[userId];
+    return json(200, {
+      type: 9, // Formular öffnen
+      data: {
+        custom_id: `kader:nummodal:${team}:${userId}`,
+        title: 'Rückennummer vergeben',
+        components: [{
+          type: 1,
+          components: [{
+            type: 4, custom_id: 'nummer', style: 1, label: 'Nummer (1–99, leer = Nummer entfernen)',
+            min_length: 0, max_length: 2, required: false, value: current != null ? String(current) : undefined,
+          }],
+        }],
+      },
+    });
+  }
+
+  return ephemeral('Unbekannte Aktion.');
+}
+
+async function handleKaderModal(interaction) {
+  const [, , team, userId] = interaction.data.custom_id.split(':');
+  if (!(await isKaderAdmin(interaction))) return ephemeral(NO_ADMIN);
+  const raw = interaction.data.components?.[0]?.components?.[0]?.value?.trim() || '';
+  const numbers = await getNumbers(team);
+
+  if (raw === '') {
+    delete numbers[userId];
+    await setNumbers(team, numbers);
+    await requestKaderRefresh({ action: 'refresh', team, guildId: interaction.guild_id });
+    return ephemeral(`✅ Nummer von <@${userId}> entfernt.`);
+  }
+
+  const nr = Number(raw);
+  if (!Number.isInteger(nr) || nr < 1 || nr > 99) return ephemeral('⚠️ Bitte eine Zahl von 1 bis 99 eingeben.');
+  const taken = Object.entries(numbers).find(([id, n]) => n === nr && id !== userId);
+  if (taken) return ephemeral(`⚠️ Die **#${nr}** hat schon <@${taken[0]}>. Bitte zuerst dort ändern.`);
+
+  numbers[userId] = nr;
+  await setNumbers(team, numbers);
+  await requestKaderRefresh({ action: 'refresh', team, guildId: interaction.guild_id });
+  return ephemeral(`✅ <@${userId}> trägt jetzt die **#${nr}** – der Kader wird gleich aktualisiert.`);
+}
+
 // ---------- Handler ----------
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'method not allowed' });
@@ -765,6 +916,10 @@ exports.handler = async (event) => {
     return handleRentnerCommand(interaction);
   }
 
+  if (interaction.type === 2 && interaction.data?.name === 'kader') {
+    return handleKaderCommand(interaction);
+  }
+
   if (interaction.type === 2 && interaction.data?.name === 'session') {
     return handleSessionStart(interaction);
   }
@@ -781,7 +936,14 @@ exports.handler = async (event) => {
     return handleAufstellungVorschlagCommand(interaction);
   }
 
+  if (interaction.type === 5 && interaction.data.custom_id.startsWith('kader:nummodal:')) {
+    return handleKaderModal(interaction);
+  }
+
   if (interaction.type === 3) {
+    if (interaction.data.custom_id.startsWith('kader:')) {
+      return handleKaderButton(interaction);
+    }
     if (interaction.data.custom_id.startsWith('posnick:')) {
       return handlePositionNickButton(interaction);
     }

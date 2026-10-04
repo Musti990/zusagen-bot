@@ -27,9 +27,7 @@ const TEAM_STYLES = {
 };
 const DEFAULT_STYLE = { accent: '#1fbf63' };
 
-const POS_KURZ = { goalkeeper: 'TW', defender: 'IV', midfielder: 'MF', forward: 'ST' };
-// EA liefert nur "midfielder" -> bei Calcio Strada der Reihe nach auf die Formation verteilen
-const MF_SLOTS = ['ZDM', 'ZDM', 'LM', 'RM', 'ZOM'];
+const POS_KURZ = { goalkeeper: 'TW', defender: 'ABW', midfielder: 'MF', forward: 'ST' };
 const POS_REIHENFOLGE = { goalkeeper: 0, defender: 1, midfielder: 2, forward: 3 };
 
 let idCounter = 0;
@@ -189,14 +187,9 @@ function ratingColor(r, isBest, accent) {
 }
 
 function playerTable(px, py, pw, title, players, crestSvg, bestRating, accent, own) {
-  let mfIndex = 0;
   const rows = sortPlayers(players)
     .slice(0, 11)
-    .map((p) => {
-      let label = posKurz(p);
-      if (own && posKey(p) === 'midfielder') label = MF_SLOTS[mfIndex++] || 'MF';
-      return { ...p, label };
-    });
+    .map((p) => ({ ...p, label: posKurz(p) }));
   const col = { pos: px + 18, name: px + 70, t: px + 290, a: px + 338, r: px + 388 };
   const rowTop = py + 88;
   const rowH = 33;

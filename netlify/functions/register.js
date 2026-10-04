@@ -110,15 +110,19 @@ exports.handler = async () => {
     },
     {
       name: 'aufstellung',
-      description: 'Erstellt ein Aufstellungsbild für die 3-5-2-Formation',
+      description: 'Startet den Aufstellungs-Builder (Formation wählen, Spieler anklicken) – nur Admins',
       options: [
         {
-          name: 'spieler',
-          description: 'z.B. "LS: Musti RS: Ivan TW: Ben LIV: ..." (Codes: TW,LIV,ZIV,RIV,LM,ZDM,ZM,ZOM,RM,LS,RS)',
+          name: 'team',
+          description: 'Welches Team?',
           type: 3,
           required: true,
+          choices: [
+            { name: 'Calcio Strada 1', value: '1' },
+            { name: 'Calcio Strada 2', value: '2' },
+          ],
         },
-        { name: 'titel', description: 'Titel (z.B. "Aufstellung Samstag")', type: 3, required: false },
+        { name: 'titel', description: 'Titel (z.B. "Aufstellung Cup")', type: 3, required: false },
       ],
     },
   ];

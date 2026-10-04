@@ -1,12 +1,12 @@
-// Kader-Verwaltung (/kader): Wer die Rolle "1 Team Kader" bzw. "2 Team Kader" hat, steht im Kader.
+// Kader-Verwaltung (/kader): Wer die Rolle "1 Mannschaft" bzw. "2 Mannschaft" hat, steht im Kader.
 // Position kommt aus dem HP-Tag im Nickname, Rückennummern vergeben Admins per Button.
 // Bewusst ohne sharp, damit Button-Antworten schnell bleiben. Das Bild baut kader-worker.js.
 
 const { blobStore } = require('./clubs');
 
 const KADER_TEAMS = {
-  '1': { label: 'Calcio Strada 1', roleName: '1 Team Kader', color: 0x1fbf63 },
-  '2': { label: 'Calcio Strada 2', roleName: '2 Team Kader', color: 0xe8434f },
+  '1': { label: 'Calcio Strada 1', roleName: '1 Mannschaft', color: 0x1fbf63 },
+  '2': { label: 'Calcio Strada 2', roleName: '2 Mannschaft', color: 0xe8434f },
 };
 
 // Wer den Kader bearbeiten darf: Discord-Rechte "Administrator", "Server verwalten" oder "Rollen verwalten"
@@ -46,7 +46,7 @@ async function getGuildRoles(guildId) {
   return res.json();
 }
 
-// "1 Team Kader", "1. Team Kader", "1 team-kader" … werden gleich behandelt
+// "1 Mannschaft", "1. Mannschaft", "1-mannschaft" … werden gleich behandelt
 function findKaderRole(roles, team) {
   const wanted = norm(KADER_TEAMS[team].roleName);
   return roles.find((r) => norm(r.name) === wanted) || null;

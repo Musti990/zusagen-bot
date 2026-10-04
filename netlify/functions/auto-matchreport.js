@@ -35,10 +35,39 @@ async function getLatestMatch(clubId) {
     eaFetch(`/clubs/matches?platform=common-gen5&clubIds=${clubId}&matchType=leagueMatch&maxResultCount=5`).catch(() => []),
     eaFetch(`/clubs/matches?platform=common-gen5&clubIds=${clubId}&matchType=friendlyMatch&maxResultCount=5`).catch(() => []),
   ]);
-  const all = [].concat(Array.isArray(league) ? league : [], Array.isArray(friendly) ? friendly : []);
+  // Spieltyp merken, damit die Grafik "LEAGUE MATCH" / "FRIENDLY MATCH" anzeigen kann
+  const tag = (list, type) => (Array.isArray(list) ? list : []).map((m) => Object.assign(m, { _matchType: type }));
+  const all = [].concat(tag(league, 'leagueMatch'), tag(friendly, 'friendlyMatch'));
   if (all.length === 0) return null;
   all.sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
   return all[0];
+}
+
+// Wappen eines Clubs vom EA-CDN laden und als data:-URI zurückgeben (oder null).
+// EA liefert in den Matchdaten nur die crestAssetId; das Bild liegt auf dem Content-CDN.
+// Mehrere Jahrgänge durchprobieren, da nicht jedes Wappen auf jedem Pfad liegt.
+const CREST_BASES = [
+  'https://eafc26.content.easports.com/fifa/fltOnlineAssets/26E4D4D6-8DBB-4A9A-BD99-9C47D3AA341D/2026/fcweb/crests/256x256/l',
+  'https://eafc25.content.easports.com/fifa/fltOnlineAssets/25E4CDAE-799B-45BE-B257-667FDCDE8044/2025/fcweb/crests/256x256/l',
+  'https://eafc24.content.easports.com/fifa/fltOnlineAssets/24B23FDE-7835-41C2-87A2-F453DFDB2E82/2024/fcweb/crests/256x256/l',
+];
+
+async function fetchCrestDataUri(clubData) {
+  const details = clubData?.details || {};
+  const crestId = details.customKit?.crestAssetId || details.crestAssetId;
+  if (!crestId) return null;
+  for (const base of CREST_BASES) {
+    try {
+      const res = await fetch(`${base}${crestId}.png`, { signal: AbortSignal.timeout(4000) });
+      const type = res.headers.get('content-type') || '';
+      if (!res.ok || !type.startsWith('image/')) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      return `data:${type.split(';')[0]};base64,${buf.toString('base64')}`;
+    } catch (_) {
+      // nächsten Pfad probieren
+    }
+  }
+  return null; // kein Wappen gefunden -> Grafik nutzt Ersatz-Wappen mit Initialen
 }
 
 function sumPlayerStat(playersObj, key) {
@@ -139,11 +168,18 @@ exports.handler = async (event) => {
       const homeMade = sumPlayerStat(homePlayersObj, 'passesmade');
       const awayMade = sumPlayerStat(awayPlayersObj, 'passesmade');
 
+      const awayCrest = await fetchCrestDataUri(match.clubs[awayId]);
+
       const svg = buildMatchReportSvg({
         homeName,
         awayName,
         homeGoals,
         awayGoals,
+        awayCrest,
+        matchType: match._matchType,
+        dateText: match.timestamp
+          ? new Date(Number(match.timestamp) * 1000).toLocaleDateString('de-AT', { timeZone: 'Europe/Vienna' })
+          : '',
         stats: {
           shots: { h: sumPlayerStat(homePlayersObj, 'shots'), a: sumPlayerStat(awayPlayersObj, 'shots') },
           passes: { h: homeMade, a: awayMade },

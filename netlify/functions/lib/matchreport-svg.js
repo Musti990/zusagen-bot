@@ -83,6 +83,7 @@ function matchTypeLabel(t) {
   if (t === 'leagueMatch') return 'LEAGUE MATCH';
   if (t === 'friendlyMatch') return 'FRIENDLY MATCH';
   if (t === 'playoffMatch') return 'PLAYOFF MATCH';
+  if (t === 'cupMatch') return 'CUP MATCH';
   return 'PRO CLUBS MATCH';
 }
 
@@ -416,6 +417,163 @@ ${inner}
 </svg>`;
 }
 
+// ---------------------------------------------------------------------------
+// Session-Bilanz (/sessionend): alle Spiele der Session + Rangliste nach Ø-Rating
+// data = { teamName, dateText?, matches: [{ oppName, homeGoals, awayGoals, matchType }],
+//          players: [{ name, pos, ratings: [..], goals, assists, passesmade, passattempts }] }
+const MEDAL = ['#e6b422', '#c0c7d1', '#cd7f32'];
+
+function buildSessionSummarySvg(data) {
+  idCounter = 0;
+  const num = teamNumber(data.teamName);
+  const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  const matches = data.matches || [];
+
+  const players = (data.players || [])
+    .map((p) => {
+      const rs = (p.ratings || []).map(Number).filter((r) => !isNaN(r));
+      const avg = rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : 0;
+      return { ...p, games: rs.length, avg };
+    })
+    .filter((p) => p.games > 0)
+    .sort((a, b) => b.avg - a.avg || b.games - a.games);
+
+  const wins = matches.filter((m) => Number(m.homeGoals) > Number(m.awayGoals)).length;
+  const losses = matches.filter((m) => Number(m.homeGoals) < Number(m.awayGoals)).length;
+  const draws = matches.length - wins - losses;
+  const gf = matches.reduce((a, m) => a + (Number(m.homeGoals) || 0), 0);
+  const ga = matches.reduce((a, m) => a + (Number(m.awayGoals) || 0), 0);
+  const teamAvg = players.length ? players.reduce((a, p) => a + p.avg, 0) / players.length : 0;
+
+  let y = 225;
+  let body = '';
+
+  // --- Spiele der Session ---
+  const mH = 70 + matches.length * 46;
+  body += panel(32, y, 960, mH, 14);
+  body += `<text x="512" y="${y + 40}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="22" letter-spacing="5">SPIELE DER SESSION</text>`;
+  matches.forEach((m, i) => {
+    const ry = y + 60 + i * 46;
+    const hg = Number(m.homeGoals) || 0;
+    const ag = Number(m.awayGoals) || 0;
+    const res = hg > ag ? ['S', '#16a34a'] : hg < ag ? ['N', '#dc2626'] : ['U', '#52525b'];
+    body += `
+    <rect x="56" y="${ry}" width="912" height="38" rx="4" fill="#000" fill-opacity="0.3" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="66" y="${ry + 6}" width="26" height="26" rx="5" fill="${res[1]}"/>
+    <text x="79" y="${ry + 25}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="16">${res[0]}</text>
+    <text x="440" y="${ry + 26}" text-anchor="end" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="18">${esc(truncate(String(data.teamName).toUpperCase(), 22))}</text>
+    <rect x="460" y="${ry + 4}" width="104" height="30" rx="5" fill="url(#metalGrad)"/>
+    <text x="512" y="${ry + 27}" text-anchor="middle" fill="#111114" font-family="${FONT}" font-weight="bold" font-size="20">${hg} : ${ag}</text>
+    <text x="584" y="${ry + 26}" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(truncate(String(m.oppName).toUpperCase(), 22), 280, 18)}">${esc(truncate(String(m.oppName).toUpperCase(), 22))}</text>
+    <text x="956" y="${ry + 25}" text-anchor="end" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="2">${esc(m.matchType === 'leagueMatch' ? 'LIGA' : m.matchType === 'friendlyMatch' ? 'FREUNDSCH.' : 'CUP')}</text>`;
+  });
+  y += mH + 22;
+
+  // --- Kennzahlen ---
+  const chips = [
+    ['SPIELE', String(matches.length), '#ffffff'],
+    ['BILANZ', `${wins}S ${draws}U ${losses}N`, '#ffffff'],
+    ['TORE', `${gf} : ${ga}`, gf >= ga ? accent : '#f87171'],
+    ['Ø TEAM-RATING', teamAvg.toFixed(2), GOLD],
+  ];
+  chips.forEach((c, i) => {
+    const cx = 32 + i * 245;
+    body += `<polygon points="${chamfer(cx, y, 230, 84, 10)}" fill="url(#panelGrad)" stroke="#3b3b44" stroke-width="2"/>
+    <text x="${cx + 115}" y="${y + 30}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="13" letter-spacing="3">${c[0]}</text>
+    <text x="${cx + 115}" y="${y + 66}" text-anchor="middle" fill="${c[2]}" font-family="${FONT}" font-weight="bold" font-size="${fitSize(c[1], 200, 30)}">${esc(c[1])}</text>`;
+  });
+  y += 84 + 30;
+
+  // --- Podium Top 3 ---
+  const top = players.slice(0, 3);
+  if (top.length) {
+    body += `<text x="512" y="${y + 22}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="22" letter-spacing="5">TOP 3 DER SESSION</text>`.replace(`y="${y + 22}"`, `y="${y + 12}"`);
+    const slots = [
+      { idx: 1, x: 52, top: 80 },
+      { idx: 0, x: 362, top: 60 },
+      { idx: 2, x: 672, top: 96 },
+    ];
+    slots.forEach((sl) => {
+      const p = top[sl.idx];
+      if (!p) return;
+      const cy = y + sl.top;
+      const h = 210;
+      const c = MEDAL[sl.idx];
+      const name = truncate(p.name, 16);
+      body += `<polygon points="${chamfer(sl.x, cy, 300, h, 14)}" fill="url(#panelGrad)" stroke="${c}" stroke-opacity="0.8" stroke-width="2"/>
+      <rect x="${sl.x + 100}" y="${cy - 1}" width="100" height="5" fill="${c}"/>
+      <circle cx="${sl.x + 150}" cy="${cy + 40}" r="24" fill="${c}"/>
+      <text x="${sl.x + 150}" y="${cy + 50}" text-anchor="middle" fill="#111114" font-family="${FONT}" font-weight="bold" font-size="26">${sl.idx + 1}</text>
+      ${sl.idx === 0 ? crown(sl.x + 128, cy - 34, '#b8860b') : ''}
+      <text x="${sl.x + 150}" y="${cy + 94}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(name, 270, 22)}">${esc(name)}</text>
+      <text x="${sl.x + 150}" y="${cy + 144}" text-anchor="middle" fill="${c}" font-family="${FONT}" font-weight="bold" font-size="44">${p.avg.toFixed(2)}</text>
+      <text x="${sl.x + 150}" y="${cy + 164}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="3">Ø RATING</text>
+      <text x="${sl.x + 150}" y="${cy + 192}" text-anchor="middle" fill="#d4d4d8" font-family="${FONT}" font-size="14">${p.games} ${p.games === 1 ? 'Spiel' : 'Spiele'} · ${p.goals || 0} T · ${p.assists || 0} V</text>`;
+    });
+    y += 306 + 30;
+  }
+
+  // --- Rangliste ---
+  const rowH = 36;
+  const tH = 100 + players.length * rowH + 14;
+  body += panel(32, y, 960, tH, 14);
+  body += `<text x="512" y="${y + 40}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="22" letter-spacing="5">RANGLISTE · Ø BEWERTUNG</text>
+  <line x1="60" y1="${y + 54}" x2="964" y2="${y + 54}" stroke="#ffffff" stroke-opacity="0.15"/>`;
+  const C = { rank: 50, pos: 98, name: 150, g: 382, t: 460, a: 538, pa: 616, r: 706, bar: 784 };
+  const hy = y + 82;
+  body += `
+  <text x="${C.rank + 20}" y="${hy}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12">#</text>
+  <text x="${C.name + 110}" y="${hy}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">SPIELER</text>
+  <text x="${C.g + 35}" y="${hy}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12">SPIELE</text>
+  <text x="${C.t + 35}" y="${hy}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12">TORE</text>
+  <text x="${C.a + 35}" y="${hy}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12">VORL.</text>
+  <text x="${C.pa + 40}" y="${hy}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12">PASS %</text>
+  <text x="${C.r + 33}" y="${hy}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12">Ø RATING</text>`;
+  players.forEach((p, i) => {
+    const ry = y + 96 + i * rowH;
+    const rankCol = i < 3 ? MEDAL[i] : '#2a2a31';
+    const bottom = players.length > 5 && i >= players.length - 3;
+    const pass = p.passattempts > 0 ? Math.round((p.passesmade / p.passattempts) * 100) : '–';
+    const barW = Math.max(4, Math.min(1, (p.avg - 5) / 5) * 184);
+    const barCol = p.avg >= 8 ? '#4ade80' : p.avg >= 7 ? accent : p.avg >= 6 ? '#eab308' : '#f87171';
+    const name = truncate(p.name, 20);
+    body += `
+    ${cellBox(C.rank, ry, 40, 28, rankCol)}
+    <text x="${C.rank + 20}" y="${ry + 20}" text-anchor="middle" fill="${i < 3 ? '#111114' : bottom ? '#f87171' : '#ffffff'}" font-family="${FONT}" font-weight="bold" font-size="16">${i + 1}</text>
+    ${cellBox(C.pos, ry, 44, 28)}
+    <text x="${C.pos + 22}" y="${ry + 20}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${posKurz(p).length > 2 ? 13 : 16}">${esc(posKurz(p))}</text>
+    ${cellBox(C.name, ry, 222, 28)}
+    <text x="${C.name + 111}" y="${ry + 20}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(name, 206, 17)}">${esc(name)}</text>
+    ${cellBox(C.g, ry, 70, 28)}${cellBox(C.t, ry, 70, 28)}${cellBox(C.a, ry, 70, 28)}${cellBox(C.pa, ry, 80, 28)}
+    <text x="${C.g + 35}" y="${ry + 20}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="16">${p.games}</text>
+    <text x="${C.t + 35}" y="${ry + 20}" text-anchor="middle" fill="${p.goals ? accent : '#6b7280'}" font-family="${FONT}" font-weight="bold" font-size="16">${p.goals || 0}</text>
+    <text x="${C.a + 35}" y="${ry + 20}" text-anchor="middle" fill="${p.assists ? accent : '#6b7280'}" font-family="${FONT}" font-weight="bold" font-size="16">${p.assists || 0}</text>
+    <text x="${C.pa + 40}" y="${ry + 20}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="16">${pass}</text>
+    ${cellBox(C.r, ry, 66, 28, '#2a2a31')}
+    <text x="${C.r + 33}" y="${ry + 20}" text-anchor="middle" fill="${i === 0 ? GOLD : '#ffffff'}" font-family="${FONT}" font-weight="bold" font-size="16">${p.avg.toFixed(2)}</text>
+    <rect x="${C.bar}" y="${ry + 8}" width="184" height="12" rx="3" fill="url(#trackGrad)"/>
+    <rect x="${C.bar}" y="${ry + 8}" width="${barW}" height="12" rx="3" fill="${barCol}"/>`;
+  });
+  y += tH + 30;
+
+  const H = y + 110;
+  return frame(H, accent, num, `
+  <g transform="translate(40,0)">
+    <text x="0" y="52" fill="#d4d4d8" font-family="${FONT}" font-weight="bold" font-size="15" letter-spacing="6">PRO CLUBS · ${num ? 'TEAM ' + esc(num) : 'SESSION'}</text>
+    ${wordmark(0, 108, 56, 'start', 'transform="skewX(-10) translate(19,0)"')}
+    ${tricolor(0, 122, 330, 5)}
+    <text x="0" y="158" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="22" letter-spacing="7">SESSION-BILANZ</text>
+    <text x="0" y="186" fill="#a1a1aa" font-family="${FONT}" font-size="15" letter-spacing="6">${esc(data.dateText || '')}</text>
+  </g>
+  <g font-family="${FONT}" font-weight="bold" text-anchor="end">
+    <text x="985" y="128" fill="#d4d4d8" font-size="15" letter-spacing="3">WIR SIND EINE</text>
+    <text x="985" y="158" fill="${VERDE}" font-size="26" letter-spacing="1">GROSSE</text>
+    <text x="985" y="186" fill="${ROSSO}" font-size="26" letter-spacing="1">FAMILIE</text>
+  </g>
+  ${body}
+  ${footer(H - 84)}`);
+}
+
 function buildMatchReportSvg(data) {
   idCounter = 0;
   const num = teamNumber(data.homeName);
@@ -582,4 +740,4 @@ function buildMatchReportSvg(data) {
   </g>`);
 }
 
-module.exports = { buildMatchReportSvg, buildPlayerStatsSvg };
+module.exports = { buildMatchReportSvg, buildPlayerStatsSvg, buildSessionSummarySvg };

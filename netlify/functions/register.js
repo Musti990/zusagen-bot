@@ -59,6 +59,22 @@ exports.handler = async () => {
       description: 'Postet eine Erwähnung für montelione',
     },
     {
+      name: 'kader',
+      description: 'Postet den Kader (Bild + Liste) mit Buttons zum Bearbeiten (nur Admins)',
+      options: [
+        {
+          name: 'team',
+          description: 'Welches Team?',
+          type: 3,
+          required: true,
+          choices: [
+            { name: 'Calcio Strada 1', value: '1' },
+            { name: 'Calcio Strada 2', value: '2' },
+          ],
+        },
+      ],
+    },
+    {
       name: 'session',
       description: 'Startet eine Session: prüft alle 2 Minuten auf neue Spiele und postet die Statistiken',
       options: [

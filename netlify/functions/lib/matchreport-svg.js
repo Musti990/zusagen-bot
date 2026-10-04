@@ -338,7 +338,7 @@ function buildPlayerStatsSvg(data) {
 }
 
 // Gemeinsamer Rahmen (Verläufe, Hintergrund, Trikolore) für alle Grafiken
-function frame(H, accent, num, inner) {
+function frame(H, accent, num, inner, Wd = W) {
   // Lichtstreifen + Stadionlichter im Hintergrund
   const streaks = [
     [620, 0, 140, 0.10], [780, 0, 60, 0.07], [900, 0, 220, 0.05], [-200, 700, 160, 0.06], [-100, 1100, 90, 0.05],
@@ -349,7 +349,7 @@ function frame(H, accent, num, inner) {
     .map(([x, y]) => `<circle cx="${x}" cy="${y}" r="16" fill="#ffffff" opacity="0.55" filter="url(#glow)"/><circle cx="${x}" cy="${y}" r="3" fill="#ffffff"/>`)
     .join('');
 
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  return `<svg width="${Wd}" height="${H}" viewBox="0 0 ${Wd} ${H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs>
     <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#1a1a1f"/><stop offset="0.5" stop-color="#0c0c0f"/><stop offset="1" stop-color="#050506"/>
@@ -393,11 +393,11 @@ function frame(H, accent, num, inner) {
   </defs>
 
   <!-- Hintergrund: dunkel wie das Logo, mit Trikolore-Schärpen -->
-  <rect width="${W}" height="${H}" fill="url(#bgGrad)"/>
-  <rect width="${W}" height="${H}" fill="url(#spot)"/>
-  <rect width="${W}" height="${H}" fill="url(#diag)"/>
+  <rect width="${Wd}" height="${H}" fill="url(#bgGrad)"/>
+  <rect width="${Wd}" height="${H}" fill="url(#spot)"/>
+  <rect width="${Wd}" height="${H}" fill="url(#diag)"/>
   ${streaks}
-  <g transform="translate(860,-60) rotate(32)" opacity="0.42" filter="url(#soft)">
+  <g transform="translate(${Wd - 164},-60) rotate(32)" opacity="0.42" filter="url(#soft)">
     <rect x="-60" y="-200" width="40" height="2400" fill="${VERDE}" mask="url(#bandMask)"/>
     <rect x="-20" y="-200" width="40" height="2400" fill="${BIANCO}" mask="url(#bandMask)"/>
     <rect x="20" y="-200" width="40" height="2400" fill="${ROSSO}" mask="url(#bandMask)"/>
@@ -409,9 +409,9 @@ function frame(H, accent, num, inner) {
   </g>
   ${lights}
   <text x="600" y="250" text-anchor="middle" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="2" font-family="${FONT}" font-weight="bold" font-size="210" transform="skewX(-12)">CS${esc(num)}</text>
-  <rect width="${W}" height="${H}" fill="url(#vignette)"/>
-  ${tricolor(0, 0, W, 6)}
-  ${tricolor(0, H - 6, W, 6)}
+  <rect width="${Wd}" height="${H}" fill="url(#vignette)"/>
+  ${tricolor(0, 0, Wd, 6)}
+  ${tricolor(0, H - 6, Wd, 6)}
 
 ${inner}
 </svg>`;
@@ -572,6 +572,115 @@ function buildSessionSummarySvg(data) {
   </g>
   ${body}
   ${footer(H - 84)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Kader-Grafik (Querformat): 4 Spalten Torwart / Abwehr / Mittelfeld / Offensive
+// data = { teamName, players: [{ number, name, group: 'TW' | 'ABW' | 'MF' | 'OFF' }] }
+const KADER_W = 1600;
+const KADER_GROUPS = [
+  { key: 'TW', title: 'TORWART' },
+  { key: 'ABW', title: 'ABWEHR' },
+  { key: 'MF', title: 'MITTELFELD' },
+  { key: 'OFF', title: 'OFFENSIVE' },
+];
+
+function kaderIcon(key, cx, cy) {
+  const f = '#ffffff';
+  if (key === 'TW') {
+    // Torwarthandschuh
+    return `<g transform="translate(${cx - 22},${cy - 26})" fill="${f}">
+      <rect x="8" y="22" width="30" height="26" rx="7"/>
+      <rect x="9" y="2" width="6" height="26" rx="3"/><rect x="16.5" y="0" width="6" height="28" rx="3"/>
+      <rect x="24" y="1" width="6" height="27" rx="3"/><rect x="31.5" y="5" width="6" height="23" rx="3"/>
+      <rect x="0" y="18" width="7" height="20" rx="3.5" transform="rotate(-30 4 28)"/>
+      <rect x="10" y="44" width="26" height="8" rx="2" fill="#9ca3af"/></g>`;
+  }
+  if (key === 'ABW') {
+    // Schild, halb gefüllt
+    return `<g transform="translate(${cx - 22},${cy - 26})">
+      <path d="M22,2 L42,9 L42,26 C42,40 32,48 22,52 C12,48 2,40 2,26 L2,9 Z" fill="none" stroke="${f}" stroke-width="3.5"/>
+      <path d="M22,8 L22,46 C14,42 8,36 8,26 L8,13 Z" fill="${f}"/></g>`;
+  }
+  if (key === 'MF') {
+    // Spielfeld
+    return `<g transform="translate(${cx - 30},${cy - 20})" fill="none" stroke="${f}" stroke-width="3">
+      <rect x="1" y="1" width="58" height="38" rx="2"/><line x1="30" y1="1" x2="30" y2="39"/>
+      <circle cx="30" cy="20" r="7"/><rect x="1" y="11" width="9" height="18"/><rect x="50" y="11" width="9" height="18"/></g>`;
+  }
+  // Ball
+  return `<g transform="translate(${cx},${cy})">
+    <circle r="25" fill="${f}"/>
+    <polygon points="0,-8 7.6,-2.5 4.7,6.5 -4.7,6.5 -7.6,-2.5" fill="#111114"/>
+    <path d="M0,-25 L0,-14 M-23.8,-7.7 L-13,-4 M23.8,-7.7 L13,-4 M-14.7,20.2 L-8,11 M14.7,20.2 L8,11" stroke="#111114" stroke-width="2.5"/>
+    <path d="M-6,-24 L6,-24 L4,-16 L-4,-16 Z M-24,2 L-19,-10 L-14,-3 L-19,8 Z M24,2 L19,-10 L14,-3 L19,8 Z M-16,19 L-6,24 L-9,16 Z M16,19 L6,24 L9,16 Z" fill="#111114"/></g>`;
+}
+
+function buildKaderSvg(data) {
+  idCounter = 0;
+  const num = teamNumber(data.teamName);
+  const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  const players = (data.players || []).slice();
+  const groups = KADER_GROUPS.map((g) => ({
+    ...g,
+    list: players.filter((p) => p.group === g.key).sort((a, b) => (Number(a.number) || 999) - (Number(b.number) || 999)),
+  }));
+
+  const rows = Math.max(11, ...groups.map((g) => g.list.length));
+  const rowH = 38;
+  const colW = 330, gap = 22;
+  const x0 = (KADER_W - (4 * colW + 3 * gap)) / 2;
+  const y0 = 330;
+  const panelH = 132 + rows * rowH + 18;
+
+  let cols = '';
+  groups.forEach((g, gi) => {
+    const x = x0 + gi * (colW + gap);
+    cols += panel(x, y0, colW, panelH, 14);
+    cols += kaderIcon(g.key, x + colW / 2, y0 + 50);
+    cols += `<text x="${x + colW / 2}" y="${y0 + 106}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="26" letter-spacing="2">${g.title}</text>
+    <line x1="${x + 18}" y1="${y0 + 120}" x2="${x + colW - 18}" y2="${y0 + 120}" stroke="#ffffff" stroke-opacity="0.35"/>
+    <rect x="${x + colW / 2 - 30}" y="${y0 + 118}" width="60" height="4" fill="${accent}"/>`;
+    for (let i = 0; i < rows; i++) {
+      const ry = y0 + 136 + i * rowH;
+      const p = g.list[i];
+      if (!p) {
+        cols += cellBox(x + 18, ry, 48, 30, '#141418') + cellBox(x + 74, ry, colW - 92, 30, '#141418');
+        continue;
+      }
+      const nr = Number.isInteger(Number(p.number)) && p.number !== null && p.number !== '' ? String(p.number).padStart(2, '0') : '–';
+      const name = truncate(p.name, 22);
+      cols += `<rect x="${x + 18}" y="${ry}" width="48" height="30" rx="5" fill="url(#metalGrad)"/>
+      <text x="${x + 42}" y="${ry + 22}" text-anchor="middle" fill="#111114" font-family="${FONT}" font-weight="bold" font-size="17">${esc(nr)}</text>
+      ${cellBox(x + 74, ry, colW - 92, 30, '#1c1c21')}
+      <text x="${x + 88}" y="${ry + 21}" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(name, colW - 120, 17)}">${esc(name)}</text>`;
+    }
+  });
+
+  const H = y0 + panelH + 130;
+  const side = (x, anchor, words) =>
+    words.map((w, i) => `<text x="${x}" y="${y0 + 40 + i * 30}" text-anchor="${anchor}" fill="#d4d4d8" font-family="${FONT}" font-size="17" letter-spacing="4">${w}</text>`).join('') +
+    `<rect x="${anchor === 'start' ? x : x - 40}" y="${y0 + 40 + words.length * 30 - 8}" width="40" height="3" fill="${accent}"/>`;
+
+  return frame(H, accent, num, `
+  <!-- Kopf -->
+  ${logo(230, 165, 250)}
+  <text x="${KADER_W / 2}" y="70" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="30" letter-spacing="6">CALCIO <tspan fill="${VERDE}">ST</tspan><tspan fill="${BIANCO}">RA</tspan><tspan fill="${ROSSO}">DA</tspan><tspan fill="#a1a1aa" font-weight="normal" dx="22">PRO CLUBS</tspan></text>
+  <text x="${KADER_W / 2}" y="222" text-anchor="middle" fill="#000" opacity="0.6" font-family="${FONT}" font-weight="bold" font-size="170" letter-spacing="8" transform="skewX(-12) translate(${222 * 0.2126 + 6},6)">KADER</text>
+  <text x="${KADER_W / 2}" y="222" text-anchor="middle" fill="url(#metalGrad)" stroke="#ffffff" stroke-width="2" font-family="${FONT}" font-weight="bold" font-size="170" letter-spacing="8" transform="skewX(-12) translate(${222 * 0.2126},0)">KADER</text>
+  ${tricolor(KADER_W / 2 - 260, 240, 520, 6)}
+  <text x="${KADER_W / 2}" y="285" text-anchor="middle" fill="#e5e7eb" font-family="${FONT}" font-size="20" letter-spacing="7">WIR SIND EINE GROSSE FAMILIE</text>
+
+  <g text-anchor="end" font-family="${FONT}" font-weight="bold">
+    <text x="${KADER_W - 70}" y="110" fill="#d4d4d8" font-size="20" letter-spacing="6">TEAM</text>
+    <text x="${KADER_W - 70}" y="225" fill="${accent}" font-size="130">${esc(num || '')}</text>
+    <text x="${KADER_W - 70}" y="270" fill="#a1a1aa" font-size="18" letter-spacing="4">${players.length} SPIELER</text>
+  </g>
+
+
+  ${cols}
+
+  <g transform="translate(${KADER_W / 2 - 512},0)">${footer(H - 84)}</g>`, KADER_W);
 }
 
 function buildMatchReportSvg(data) {
@@ -740,4 +849,4 @@ function buildMatchReportSvg(data) {
   </g>`);
 }
 
-module.exports = { buildMatchReportSvg, buildPlayerStatsSvg, buildSessionSummarySvg };
+module.exports = { buildMatchReportSvg, buildPlayerStatsSvg, buildSessionSummarySvg, buildKaderSvg };

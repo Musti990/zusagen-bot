@@ -28,13 +28,37 @@ function statBar(y, label, hVal, aVal) {
     <text x="560" y="${y}" text-anchor="start" fill="#ffffff" font-size="13" font-family="DejaVu Sans">${a}</text>`;
 }
 
+// EA liefert die Positionen als englische Wörter ("defender" usw.), die zu lang für die
+// Spalte sind und sich mit dem Namen überlappen -> auf deutsche Kürzel abkürzen.
+const POS_KURZ = { goalkeeper: 'TW', defender: 'ABW', midfielder: 'MF', forward: 'ST' };
+const POS_REIHENFOLGE = { goalkeeper: 0, defender: 1, midfielder: 2, forward: 3 };
+
+function posKey(p) {
+  return String(p.pos || '').toLowerCase().trim();
+}
+
+function posKurz(p) {
+  const key = posKey(p);
+  return POS_KURZ[key] || (key ? key.slice(0, 3).toUpperCase() : '–');
+}
+
+// Sortiert TW -> ABW -> MF -> ST, innerhalb der Position nach Rating (beste zuerst)
+function sortPlayers(players) {
+  return players.slice().sort((a, b) => {
+    const pa = POS_REIHENFOLGE[posKey(a)] ?? 9;
+    const pb = POS_REIHENFOLGE[posKey(b)] ?? 9;
+    if (pa !== pb) return pa - pb;
+    return (parseFloat(b.rating) || 0) - (parseFloat(a.rating) || 0);
+  });
+}
+
 function playerTableRows(players, xOffset, startY) {
-  return players
+  return sortPlayers(players)
     .slice(0, 11)
     .map((p, i) => {
       const y = startY + i * 20;
       return `
-      <text x="${xOffset}" y="${y}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans">${esc(p.pos)}</text>
+      <text x="${xOffset}" y="${y}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans">${esc(posKurz(p))}</text>
       <text x="${xOffset + 35}" y="${y}" fill="#ffffff" font-size="11" font-family="DejaVu Sans">${esc(truncate(p.name, 14))}</text>
       <text x="${xOffset + 150}" y="${y}" fill="#ffffff" font-size="11" font-family="DejaVu Sans" text-anchor="middle">${p.goals}</text>
       <text x="${xOffset + 175}" y="${y}" fill="#ffffff" font-size="11" font-family="DejaVu Sans" text-anchor="middle">${p.assists}</text>
@@ -93,7 +117,7 @@ function buildMatchReportSvg(data) {
   <text x="56" y="${height - 106}" fill="#9ca3af" font-size="10" font-family="DejaVu Sans" letter-spacing="1">MAN OF THE MATCH</text>
   ${motm
     ? `<text x="56" y="${height - 84}" fill="#ffffff" font-size="14" font-weight="bold" font-family="DejaVu Sans">${esc(truncate(motm.name, 20))}</text>
-       <text x="56" y="${height - 66}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans">${motm.goals} Tore · Rating ${esc(motm.rating)}</text>`
+       <text x="56" y="${height - 66}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans">${motm.goals} ${motm.goals === 1 ? 'Tor' : 'Tore'} · ${motm.assists} ${motm.assists === 1 ? 'Vorlage' : 'Vorlagen'} · Rating ${esc(motm.rating)}</text>`
     : `<text x="56" y="${height - 84}" fill="#9ca3af" font-size="13" font-family="DejaVu Sans">—</text>`}
 
   <rect x="310" y="${height - 130}" width="250" height="108" rx="10" fill="#1f2937"/>

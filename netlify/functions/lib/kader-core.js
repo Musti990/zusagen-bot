@@ -116,19 +116,10 @@ async function getKaderPlayers(guildId, team) {
 
 function buildKaderEmbed(team, players, roleName, imageName) {
   const t = KADER_TEAMS[team];
-  const fields = ['TW', 'ABW', 'MF', 'OFF'].map((g) => {
-    const list = players.filter((p) => p.group === g);
-    let value = list.length
-      ? list.map((p) => `**${p.number != null ? '#' + p.number : '–'}** ${p.name}${p.pos ? ` · ${p.pos}` : ''}`).join('\n')
-      : '–';
-    if (value.length > 1024) value = value.slice(0, 1020) + '…';
-    return { name: GROUP_TITLES[g], value, inline: false };
-  });
+  // Nur das Bild zeigen – keine Textliste. Die Positionen stehen im Bild selbst.
   return {
     title: `${t.label.toUpperCase()} | KADER`,
-    description: `Der aktuelle Kader von ${t.label} – alle mit der Rolle **${roleName || t.roleName}** (${players.length} Spieler).`,
     color: t.color,
-    fields,
     image: imageName ? { url: `attachment://${imageName}` } : undefined,
     footer: { text: 'Wir sind eine große Familie 🇮🇹' },
   };

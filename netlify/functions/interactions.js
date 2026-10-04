@@ -8,6 +8,10 @@ const {
 } = require('./lib/event-core');
 const { sessionStore, clubsForTeam, getSession, saveSession, newSession } = require('./lib/session-core');
 const {
+  lineupStore, lineupKey, emptyLineup, getLineup, saveLineup,
+  switchFormation, autoFill, lineupEmbed, lineupComponents, requestLineupRefresh, FORMATION_NAMES,
+} = require('./lib/lineup-core');
+const {
   KADER_TEAMS,
   api: discordApi,
   getGuildRoles,
@@ -872,6 +876,118 @@ async function handleKaderModal(interaction) {
   return ephemeral(`✅ <@${userId}> trägt jetzt die **#${nr}** – der Kader wird gleich aktualisiert.`);
 }
 
+// ---------- /aufstellung (Klick-Bedienung, Bild, nur Admins) ----------
+const luEph = (content, extra = {}) => json(200, { type: 4, data: { content, flags: 64, ...extra } });
+const luUpd = (content, extra = {}) => json(200, { type: 7, data: { content, components: [], ...extra } });
+
+async function handleAufstellungCommand(interaction) {
+  if (!(await isKaderAdmin(interaction))) return luEph('⛔ Nur Admins können die Aufstellung bearbeiten.');
+  const opts = Object.fromEntries((interaction.data.options || []).map((o) => [o.name, o.value]));
+  const team = String(opts.team || '1');
+  const store = lineupStore();
+  const key = lineupKey(interaction);
+  const lineup = emptyLineup(team, opts.titel, interaction.member.user.id);
+  lineup.guildId = interaction.guild_id;
+  await saveLineup(store, key, lineup);
+  // Sofort (ephemer) die Bedienelemente zeigen, Bild ergänzt lineup-worker gleich danach
+  await requestLineupRefresh({ action: 'post', key, appId: interaction.application_id, token: interaction.token });
+  return json(200, { type: 4, data: { flags: 64, embeds: [lineupEmbed(lineup)], components: lineupComponents(lineup) } });
+}
+
+async function loadLineupForEdit(interaction) {
+  const store = lineupStore();
+  const key = lineupKey(interaction);
+  const lineup = await getLineup(store, key);
+  return { store, key, lineup };
+}
+
+async function handleLineupComponent(interaction) {
+  if (!(await isKaderAdmin(interaction))) return luEph('⛔ Nur Admins können die Aufstellung bearbeiten.');
+  const parts = interaction.data.custom_id.split(':'); // lineup:<action>:<team>[:slot]
+  const action = parts[1];
+  const { store, key, lineup } = await loadLineupForEdit(interaction);
+  if (!lineup) return luEph('Diese Aufstellung ist abgelaufen. Starte sie neu mit /aufstellung.');
+
+  const applyAndRefresh = async (newLineup, content) => {
+    newLineup.guildId = interaction.guild_id;
+    await saveLineup(store, key, newLineup);
+    await requestLineupRefresh({ action: 'refresh', key });
+    return content;
+  };
+
+  if (action === 'form') {
+    const next = switchFormation(lineup, interaction.data.values[0]);
+    return luUpd(await applyAndRefresh(next, `Formation auf **${next.formation}** gesetzt.`));
+  }
+
+  if (action === 'auto') {
+    const filled = await autoFill(interaction.guild_id, lineup);
+    return luUpd(await applyAndRefresh(filled, '✨ Automatisch gefüllt (nach HP-Positionen). Einzelne Plätze kannst du unten anpassen.'));
+  }
+
+  if (action === 'clear') {
+    return luUpd(await applyAndRefresh({ ...lineup, players: {} }, '🧹 Alle Positionen geleert.'));
+  }
+
+  // Position gewählt -> kleines Menü: Mitglied anklicken oder Aushilfe eintippen / leeren
+  if (action === 'slot') {
+    const slotKey = interaction.data.values[0];
+    return luEph(`Wen willst du auf **${slotKey}** stellen?`, {
+      components: [
+        { type: 1, components: [{ type: 5, custom_id: `lineup:pick:${lineup.team}:${slotKey}`, placeholder: 'Spieler wählen…', min_values: 1, max_values: 1 }] },
+        { type: 1, components: [
+          { type: 2, style: 2, label: 'Aushilfe eintippen', emoji: { name: '✏️' }, custom_id: `lineup:guest:${lineup.team}:${slotKey}` },
+          { type: 2, style: 4, label: 'Leeren', emoji: { name: '✖️' }, custom_id: `lineup:unset:${lineup.team}:${slotKey}` },
+        ] },
+      ],
+    });
+  }
+
+  const slotKey = parts[3];
+  if (action === 'unset') {
+    const next = { ...lineup, players: { ...lineup.players } };
+    delete next.players[slotKey];
+    return luUpd(await applyAndRefresh(next, `**${slotKey}** geleert.`));
+  }
+
+  if (action === 'pick') {
+    const userId = interaction.data.values[0];
+    const resolved = interaction.data.resolved || {};
+    const member = resolved.members?.[userId];
+    const user = resolved.users?.[userId];
+    const rawNick = member?.nick || user?.global_name || user?.username || 'Spieler';
+    const name = String(rawNick).split('|')[0].trim() || rawNick;
+    const next = { ...lineup, players: { ...lineup.players, [slotKey]: name } };
+    return luUpd(await applyAndRefresh(next, `**${slotKey}:** ${name}`));
+  }
+
+  if (action === 'guest') {
+    return json(200, {
+      type: 9,
+      data: {
+        custom_id: `lineup:guestmodal:${lineup.team}:${slotKey}`,
+        title: 'Aushilfe eintragen',
+        components: [{ type: 1, components: [{ type: 4, custom_id: 'name', style: 1, label: `Name für ${slotKey}`, min_length: 1, max_length: 20, required: true }] }],
+      },
+    });
+  }
+
+  return luEph('Unbekannte Aktion.');
+}
+
+async function handleLineupModal(interaction) {
+  if (!(await isKaderAdmin(interaction))) return luEph('⛔ Nur Admins können die Aufstellung bearbeiten.');
+  const [, , team, slotKey] = interaction.data.custom_id.split(':');
+  const name = interaction.data.components?.[0]?.components?.[0]?.value?.trim();
+  const { store, key, lineup } = await loadLineupForEdit(interaction);
+  if (!lineup) return luEph('Diese Aufstellung ist abgelaufen. Starte sie neu mit /aufstellung.');
+  const next = { ...lineup, players: { ...lineup.players, [slotKey]: name } };
+  next.guildId = interaction.guild_id;
+  await saveLineup(store, key, next);
+  await requestLineupRefresh({ action: 'refresh', key });
+  return luEph(`**${slotKey}:** ${name} (Aushilfe)`);
+}
+
 // ---------- Handler ----------
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'method not allowed' });
@@ -940,7 +1056,14 @@ exports.handler = async (event) => {
     return handleKaderModal(interaction);
   }
 
+  if (interaction.type === 5 && interaction.data.custom_id.startsWith('lineup:guestmodal:')) {
+    return handleLineupModal(interaction);
+  }
+
   if (interaction.type === 3) {
+    if (interaction.data.custom_id.startsWith('lineup:')) {
+      return handleLineupComponent(interaction);
+    }
     if (interaction.data.custom_id.startsWith('kader:')) {
       return handleKaderButton(interaction);
     }

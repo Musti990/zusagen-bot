@@ -4,3 +4,7 @@
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["impit", "sharp"]
+
+# /session: alle 2 Minuten auf neue Spiele prüfen (ohne aktive Session passiert nichts)
+[functions."session-check"]
+  schedule = "*/2 * * * *"

@@ -1,146 +1,112 @@
-exports.handler = async () => {
-  const appId = process.env.APPLICATION_ID;
-  const guildId = process.env.GUILD_ID;
-  const token = process.env.DISCORD_TOKEN;
+// Läuft alle 2 Minuten automatisch (Zeitplan steht in netlify.toml).
+// Ohne aktive Session passiert nichts. Während einer /session:
+//  - neue Spiele seit Session-Start erkennen, Spielbericht-Bilder posten, für die Bilanz speichern
+//  - nach /sessionend (oder spätestens nach 6 Stunden) die Session-Bilanz posten und beenden
+//  - außerdem: Kader-Bilder nachholen, falls ein sofortiges Update nicht geklappt hat
 
-  if (!appId || !token) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'APPLICATION_ID oder DISCORD_TOKEN fehlt als Umgebungsvariable in Netlify.' }),
-    };
+const {
+  CLUBS,
+  blobStore,
+  getRecentMatches,
+  matchIdOf,
+  buildReportData,
+  renderReportImages,
+  renderSessionSummary,
+  findChannelId,
+  postImagesToDiscord,
+  isPosted,
+  markPosted,
+} = require('./lib/match-core');
+const {
+  MAX_SESSION_MS,
+  END_DELAY_MS,
+  sessionStore,
+  getSession,
+  saveSession,
+  deleteSession,
+  toSessionMatch,
+  buildSummaryData,
+} = require('./lib/session-core');
+
+const { processPendingKader } = require('./lib/kader-render');
+
+// Netlify beendet zeitgesteuerte Funktionen nach 30 s -> pro Lauf höchstens so viele Spiele
+// verarbeiten; der Rest kommt automatisch beim nächsten Lauf 2 Minuten später.
+const MAX_MATCHES_PER_RUN = 2;
+
+exports.handler = async () => {
+  const sessions = sessionStore();
+  const posted = blobStore('proclubs-last-seen');
+  const results = [];
+  let budget = MAX_MATCHES_PER_RUN;
+
+  for (const club of CLUBS) {
+    const session = await getSession(sessions, club.clubId);
+    if (!session) continue; // keine Session -> nichts zu tun
+
+    const now = Date.now();
+    let pending = false;
+
+    try {
+      const recent = await getRecentMatches(club.clubId, 5);
+      const known = new Set(session.matches.map((m) => m.matchId));
+      const fresh = recent
+        .filter((m) => Number(m.timestamp) * 1000 >= session.startedAt - 2 * 60 * 1000) // nur Spiele ab Session-Start
+        .filter((m) => !known.has(matchIdOf(m, club.clubId)))
+        .sort((a, b) => Number(a.timestamp) - Number(b.timestamp)); // älteste zuerst posten
+
+      for (const match of fresh) {
+        if (budget <= 0) {
+          pending = true;
+          break;
+        }
+        budget--;
+        const matchId = matchIdOf(match, club.clubId);
+        // In der Session sind Freundschaftsspiele eure Cups -> "CUP MATCH"
+        const reportData = await buildReportData(match, club, {
+          matchType: match._matchType === 'friendlyMatch' ? 'cupMatch' : match._matchType,
+        });
+
+        if (!(await isPosted(posted, club.clubId, matchId))) {
+          const channelId = await findChannelId();
+          if (channelId) {
+            await postImagesToDiscord(channelId, await renderReportImages(reportData));
+            await markPosted(posted, club.clubId, matchId);
+          }
+        }
+
+        session.matches.push(toSessionMatch(matchId, match.timestamp, reportData));
+        await saveSession(sessions, session);
+        results.push({ club: club.label, status: 'Spiel erfasst', matchId });
+      }
+    } catch (err) {
+      results.push({ club: club.label, status: 'Fehler: ' + err.message });
+    }
+
+    // Session abschließen?
+    const endDue = session.endRequestedAt && now >= session.endRequestedAt + END_DELAY_MS;
+    const expired = now - session.startedAt > MAX_SESSION_MS;
+    if ((endDue || expired) && !pending && budget > 0) {
+      try {
+        if (session.matches.length > 0) {
+          const channelId = await findChannelId();
+          if (channelId) await postImagesToDiscord(channelId, await renderSessionSummary(buildSummaryData(session)));
+        }
+        await deleteSession(sessions, club.clubId);
+        results.push({ club: club.label, status: `Session beendet (${session.matches.length} Spiele)` });
+      } catch (err) {
+        results.push({ club: club.label, status: 'Fehler beim Beenden: ' + err.message });
+      }
+    }
   }
 
-  const commands = [
-    {
-      name: 'event',
-      description: 'Erstellt ein RSVP-Event mit Zusage/Vielleicht/Absage-Buttons',
-      options: [
-        { name: 'titel', description: 'Titel des Events', type: 3, required: true },
-        { name: 'datum', description: 'Datum TT.MM.JJJJ', type: 3, required: true },
-        { name: 'uhrzeit', description: 'Uhrzeit HH:MM', type: 3, required: true },
-        { name: 'limit', description: 'Maximale Anzahl Zusagen', type: 4, required: true },
-        { name: 'info', description: 'Zusatzinfo', type: 3, required: false },
-        { name: 'beschreibung', description: 'Ausführlichere Beschreibung des Events', type: 3, required: false },
-        { name: 'bild', description: 'Bild für das Event', type: 11, required: false },
-        {
-          name: 'mannschaft',
-          description: 'Für welche Mannschaft?',
-          type: 3,
-          required: false,
-          choices: [
-            { name: '1. Mannschaft', value: '1 Mannschaft' },
-            { name: '2. Mannschaft', value: '2 Mannschaft' },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'mitglieder',
-      description: 'Zeigt alle Servermitglieder gruppiert nach Rolle',
-    },
-    {
-      name: 'position',
-      description: 'Positionsauswahl (schreibt sie in deinen Nickname)',
-      options: [
-        { name: 'hp', description: 'Hauptposition festlegen', type: 1 },
-        { name: 'np', description: 'Nebenposition festlegen', type: 1 },
-      ],
-    },
-    {
-      name: 'rolle',
-      description: 'Postet ein dauerhaftes Panel zur Rollenwahl (Tester, Aushilfe)',
-    },
-    {
-      name: 'quiz',
-      description: 'Startet ein Quiz mit 8 Fragen — wer die meisten Punkte hat, gewinnt',
-    },
-    {
-      name: 'rentner',
-      description: 'Postet eine Erwähnung für montelione',
-    },
-    {
-      name: 'kader',
-      description: 'Postet den Kader (Bild + Liste) mit Buttons zum Bearbeiten (nur Admins)',
-      options: [
-        {
-          name: 'team',
-          description: 'Welches Team?',
-          type: 3,
-          required: true,
-          choices: [
-            { name: 'Calcio Strada 1', value: '1' },
-            { name: 'Calcio Strada 2', value: '2' },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'session',
-      description: 'Startet eine Session: prüft alle 2 Minuten auf neue Spiele und postet die Statistiken',
-      options: [
-        {
-          name: 'team',
-          description: 'Welches Team? (leer = beide)',
-          type: 3,
-          required: false,
-          choices: [
-            { name: 'Calcio Strada 1', value: '1' },
-            { name: 'Calcio Strada 2', value: '2' },
-            { name: 'Beide', value: 'beide' },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'sessionend',
-      description: 'Beendet die Session und postet die Bilanz (Spieler nach Ø-Rating sortiert)',
-      options: [
-        {
-          name: 'team',
-          description: 'Welches Team? (leer = beide)',
-          type: 3,
-          required: false,
-          choices: [
-            { name: 'Calcio Strada 1', value: '1' },
-            { name: 'Calcio Strada 2', value: '2' },
-            { name: 'Beide', value: 'beide' },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'aufstellung',
-      description: 'Erstellt ein Aufstellungsbild für die 3-5-2-Formation',
-      options: [
-        {
-          name: 'spieler',
-          description: 'z.B. "LS: Musti RS: Ivan TW: Ben LIV: ..." (Codes: TW,LIV,ZIV,RIV,LM,ZDM,ZM,ZOM,RM,LS,RS)',
-          type: 3,
-          required: true,
-        },
-        { name: 'titel', description: 'Titel (z.B. "Aufstellung Samstag")', type: 3, required: false },
-      ],
-    },
-  ];
+  // Absicherung: offene Kader-Bilder nachholen, falls kader-worker nicht durchgelaufen ist
+  try {
+    const kader = await processPendingKader(process.env.GUILD_ID);
+    if (kader.length) results.push({ kader });
+  } catch (err) {
+    results.push({ kader: 'Fehler: ' + err.message });
+  }
 
-  const url = guildId
-    ? `https://discord.com/api/v10/applications/${appId}/guilds/${guildId}/commands`
-    : `https://discord.com/api/v10/applications/${appId}/commands`;
-
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bot ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(commands),
-  });
-
-  const data = await res.json();
-
-  return {
-    statusCode: res.status,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data, null, 2),
-  };
+  return { statusCode: 200, body: JSON.stringify({ ok: true, results }) };
 };

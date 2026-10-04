@@ -8,7 +8,7 @@
 //          homePlayers: [...], awayPlayers: [...] }
 
 const W = 1024;
-const H = 1536;
+const BASE_H = 1536;
 const FONT = 'DejaVu Sans';
 
 // Akzentfarbe pro Team (wird anhand der Zahl im Teamnamen gewählt)
@@ -153,7 +153,7 @@ function crown(x, y, color) {
   </g>`;
 }
 
-function statRow(i, y, label, hVal, aVal, suffix, accent) {
+function statRow(i, y, label, hVal, aVal, suffix, accent, lowerBetter = false) {
   const h = Number(hVal) || 0;
   const a = Number(aVal) || 0;
   const max = Math.max(h, a, 1);
@@ -161,8 +161,11 @@ function statRow(i, y, label, hVal, aVal, suffix, accent) {
   const hW = (h / max) * barW;
   const aW = (a / max) * barW;
   // Höherer Wert weiß, niedrigerer gedimmt (Gold bleibt für das eigene Team reserviert)
-  const hCol = h >= a ? '#ffffff' : '#8b8b95';
-  const aCol = a >= h ? '#ffffff' : '#8b8b95';
+  // bei "weniger ist besser" (Fehlpässe, Karten) ist der kleinere Wert der bessere
+  const hBetter = lowerBetter ? h <= a : h >= a;
+  const aBetter = lowerBetter ? a <= h : a >= h;
+  const hCol = hBetter ? '#ffffff' : '#8b8b95';
+  const aCol = aBetter ? '#ffffff' : '#8b8b95';
   return `
     ${i > 0 ? `<line x1="80" y1="${y - 21}" x2="944" y2="${y - 21}" stroke="#ffffff" stroke-opacity="0.08"/>` : ''}
     <text x="130" y="${y + 9}" text-anchor="middle" fill="${hCol}" font-family="${FONT}" font-weight="bold" font-size="24">${h}${suffix}</text>
@@ -223,51 +226,118 @@ function playerTable(px, py, pw, title, players, crestSvg, bestRating, accent, o
   return out;
 }
 
-function buildMatchReportSvg(data) {
+// Ausführliche Spielerstatistik (volle Breite) für das eigene Team
+const DETAIL_ROW_H = 34;
+function detailTable(py, title, players, bestRating, accent, crestSvg) {
+  const rows = sortPlayers(players).slice(0, 11);
+  const n = (k, p) => Number(p[k]) || 0;
+  const cols = [
+    { key: 'goals', label: 'TORE', val: (p) => n('goals', p), good: (v) => v > 0 },
+    { key: 'assists', label: 'VORL.', val: (p) => n('assists', p), good: (v) => v > 0 },
+    { key: 'shots', label: 'SCHÜSSE', val: (p) => n('shots', p) },
+    { key: 'passes', label: 'PÄSSE', val: (p) => `${n('passesmade', p)}/${n('passattempts', p)}` },
+    { key: 'lost', label: 'FEHLP.', val: (p) => Math.max(0, n('passattempts', p) - n('passesmade', p)), bad: (v) => v >= 8 },
+    {
+      key: 'passacc', label: 'PASS %',
+      val: (p) => (n('passattempts', p) > 0 ? Math.round((n('passesmade', p) / n('passattempts', p)) * 100) : '–'),
+      good: (v) => v >= 85, bad: (v) => v !== '–' && v < 70,
+    },
+    { key: 'tackles', label: 'TACKLES', val: (p) => `${n('tacklesmade', p)}/${n('tackleattempts', p)}` },
+  ];
+  // Abfangaktionen nur, wenn EA sie überhaupt liefert
+  if (players.some((p) => p.interceptions != null)) cols.push({ key: 'int', label: 'ABFANG.', val: (p) => n('interceptions', p) });
+  cols.push({ key: 'saves', label: 'PARADEN', val: (p) => n('saves', p), good: (v) => v > 0 });
+
+  const height = 104 + 11 * DETAIL_ROW_H + 16;
+  const x0 = 32, w = 960;
+  const nameX = x0 + 70, nameW = 200;
+  const numStart = nameX + nameW + 10;
+  const ratingW = 66;
+  const numEnd = x0 + w - 18 - ratingW - 8;
+  const colW = (numEnd - numStart) / cols.length;
+
+  let out = panel(x0, py, w, height, 14) + crestSvg;
+  out += `<text x="${x0 + w / 2}" y="${py + 42}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="22" letter-spacing="4">${esc(String(title).toUpperCase())}</text>
+  <line x1="${x0 + 90}" y1="${py + 56}" x2="${x0 + w - 16}" y2="${py + 56}" stroke="#ffffff" stroke-opacity="0.15"/>
+  <text x="${nameX + nameW / 2}" y="${py + 84}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">SPIELER</text>
+  ${cols.map((c, i) => `<text x="${numStart + colW * i + colW / 2}" y="${py + 84}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12">${c.label}</text>`).join('')}
+  <text x="${x0 + w - 18 - ratingW / 2}" y="${py + 84}" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">RATING</text>`;
+
+  for (let i = 0; i < 11; i++) {
+    const y = py + 96 + i * DETAIL_ROW_H;
+    const p = rows[i];
+    out += cellBox(x0 + 18, y, 44, 27) + cellBox(nameX, y, nameW, 27);
+    cols.forEach((c, ci) => (out += cellBox(numStart + colW * ci + 3, y, colW - 6, 27)));
+    out += cellBox(x0 + w - 18 - ratingW, y, ratingW, 27, p ? '#2a2a31' : '#16161a');
+    if (!p) continue;
+    const name = truncate(p.name, 18);
+    const r = parseFloat(p.rating);
+    out += `
+      <text x="${x0 + 40}" y="${y + 19}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${posKurz(p).length > 2 ? 13 : 16}">${esc(posKurz(p))}</text>
+      <text x="${nameX + nameW / 2}" y="${y + 20}" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(name, nameW - 14, 17)}">${esc(name)}</text>`;
+    cols.forEach((c, ci) => {
+      const v = c.val(p);
+      let col = '#ffffff';
+      if (v === 0 || v === '0/0') col = '#6b7280';
+      if (c.good && c.good(v)) col = accent;
+      if (c.bad && c.bad(v)) col = '#f87171';
+      out += `<text x="${numStart + colW * ci + colW / 2}" y="${y + 20}" text-anchor="middle" fill="${col}" font-family="${FONT}" font-weight="bold" font-size="${String(v).length > 4 ? 14 : 17}">${esc(v)}</text>`;
+    });
+    out += `<text x="${x0 + w - 18 - ratingW / 2}" y="${y + 20}" text-anchor="middle" fill="${ratingColor(r, !isNaN(r) && r === bestRating, accent)}" font-family="${FONT}" font-weight="bold" font-size="17">${esc(isNaN(r) ? p.rating : r.toFixed(1))}</text>`;
+  }
+  return { svg: out, height };
+}
+
+function footer(y) {
+  return `<g transform="translate(0,${y - 1452})">
+  <line x1="60" y1="1452" x2="964" y2="1452" stroke="#ffffff" stroke-opacity="0.15"/>
+  ${logo(300, 1492, 62)}
+  ${wordmark(345, 1503, 30, 'start', 'transform="skewX(-10) translate(265,0)"')}
+  <rect x="660" y="1474" width="2" height="36" fill="#ffffff" opacity="0.3"/>
+  <text x="678" y="1490" fill="#d4d4d8" font-family="${FONT}" font-size="13" letter-spacing="3">WIR SIND EINE</text>
+  <text x="678" y="1510" font-family="${FONT}" font-weight="bold" font-size="14" letter-spacing="3"><tspan fill="${VERDE}">GROSSE</tspan><tspan fill="${ROSSO}" dx="6">FAMILIE</tspan></text>
+  </g>`;
+}
+
+// Zweites Bild: ausführliche Spielerstatistik des eigenen Teams
+function buildPlayerStatsSvg(data) {
   idCounter = 0;
   const num = teamNumber(data.homeName);
-  const style = TEAM_STYLES[num] || DEFAULT_STYLE;
-  const accent = style.accent;
-
-  const homeGoals = Number(data.homeGoals) || 0;
-  const awayGoals = Number(data.awayGoals) || 0;
-  const result =
-    homeGoals > awayGoals
-      ? { text: 'SIEG', fill: '#16a34a' }
-      : homeGoals < awayGoals
-        ? { text: 'NIEDERLAGE', fill: '#dc2626' }
-        : { text: 'UNENTSCHIEDEN', fill: '#52525b' };
-
-  const homePlayers = data.homePlayers || [];
-  const awayPlayers = data.awayPlayers || [];
-  const allPlayers = homePlayers.map((p) => ({ ...p, own: true })).concat(awayPlayers.map((p) => ({ ...p, own: false })));
-
-  let motm = null;
-  allPlayers.forEach((p) => {
+  const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  const players = data.homePlayers || [];
+  let best = NaN;
+  (data.homePlayers || []).concat(data.awayPlayers || []).forEach((p) => {
     const r = parseFloat(p.rating);
-    if (!isNaN(r) && (!motm || r > motm.ratingNum)) motm = { ...p, ratingNum: r };
+    if (!isNaN(r) && (isNaN(best) || r > best)) best = r;
   });
-  const bestRating = motm ? motm.ratingNum : NaN;
+  const hg = Number(data.homeGoals) || 0;
+  const ag = Number(data.awayGoals) || 0;
+  const resFill = hg > ag ? '#16a34a' : hg < ag ? '#dc2626' : '#52525b';
 
-  const scorers = allPlayers.filter((p) => p.goals > 0).sort((a, b) => b.goals - a.goals).slice(0, 4);
-  const assisters = allPlayers.filter((p) => p.assists > 0).sort((a, b) => b.assists - a.assists).slice(0, 4);
+  const tableY = 250;
+  const detail = detailTable(tableY, data.homeName, players, best, accent, logo(70, tableY + 34, 56));
+  const H = tableY + detail.height + 140;
 
-  const ownCrest = (cx, cy, size) => logo(cx, cy, size);
-  // Gegner-Wappen: echtes EA-Wappen (data.awayCrest = data:-URI), sonst Ersatz-Wappen mit Initialen
-  const oppCrest = (cx, cy, size) =>
-    data.awayCrest
-      ? `<image x="${cx - size / 2}" y="${cy - size / 2}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet" href="${data.awayCrest}" xlink:href="${data.awayCrest}"/>`
-      : crest(cx, cy, size, { mono: initials(data.awayName), ribbon: '', accent, own: false });
+  return frame(H, accent, num, `
+  <g transform="translate(40,0)">
+    <text x="0" y="52" fill="#d4d4d8" font-family="${FONT}" font-weight="bold" font-size="15" letter-spacing="6">PRO CLUBS · ${num ? 'TEAM ' + esc(num) : 'SPIELBERICHT'}</text>
+    ${wordmark(0, 108, 56, 'start', 'transform="skewX(-10) translate(19,0)"')}
+    ${tricolor(0, 122, 330, 5)}
+    <text x="0" y="158" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="22" letter-spacing="7">SPIELERSTATISTIK</text>
+    <text x="0" y="186" fill="#a1a1aa" font-family="${FONT}" font-size="15" letter-spacing="6">${esc(matchTypeLabel(data.matchType))}${data.dateText ? ' · ' + esc(data.dateText) : ''}</text>
+  </g>
+  <g font-family="${FONT}" font-weight="bold" text-anchor="end">
+    <text x="985" y="96" fill="#ffffff" font-size="15" letter-spacing="2">${esc(truncate(String(data.homeName).toUpperCase(), 20))}</text>
+    <text x="985" y="186" fill="#d4d4d8" font-size="15" letter-spacing="2">${esc(truncate(String(data.awayName).toUpperCase(), 20))}</text>
+  </g>
+  <rect x="870" y="110" width="115" height="48" rx="8" fill="${resFill}"/>
+  <text x="927" y="143" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="24">${hg} : ${ag}</text>
+  ${detail.svg}
+  ${footer(H - 84)}`);
+}
 
-  const s = data.stats || {};
-  const st = (k) => s[k] || { h: 0, a: 0 };
-
-  const scoreStr = (g) => String(g);
-  const scoreSize = (g) => (String(g).length > 1 ? 74 : 104);
-
-  const homeTitle = truncate(data.homeName, 22).toUpperCase();
-  const awayTitle = truncate(data.awayName, 22).toUpperCase();
-
+// Gemeinsamer Rahmen (Verläufe, Hintergrund, Trikolore) für alle Grafiken
+function frame(H, accent, num, inner) {
   // Lichtstreifen + Stadionlichter im Hintergrund
   const streaks = [
     [620, 0, 140, 0.10], [780, 0, 60, 0.07], [900, 0, 220, 0.05], [-200, 700, 160, 0.06], [-100, 1100, 90, 0.05],
@@ -277,38 +347,6 @@ function buildMatchReportSvg(data) {
   const lights = [[90, 70], [150, 110], [60, 160], [960, 60], [900, 110], [990, 150], [520, 30]]
     .map(([x, y]) => `<circle cx="${x}" cy="${y}" r="16" fill="#ffffff" opacity="0.55" filter="url(#glow)"/><circle cx="${x}" cy="${y}" r="3" fill="#ffffff"/>`)
     .join('');
-
-  const motmBlock = motm
-    ? `
-    <circle cx="125" cy="1325" r="74" fill="#0b0b0e" stroke="#ffffff" stroke-width="3"/>
-    <circle cx="125" cy="1325" r="66" fill="none" stroke="${motm.own ? accent : '#6b6b75'}" stroke-width="2"/>
-    ${motm.own ? ownCrest(125, 1325, 92) : oppCrest(125, 1325, 92)}
-    ${crown(325, 1250, '#b8860b')}
-    ${cellBox(220, 1296, 254, 40, '#101014')}
-    <text x="347" y="1324" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(truncate(motm.name, 20), 236, 22)}">${esc(truncate(motm.name, 20))}</text>
-    ${cellBox(220, 1348, 70, 40, '#2a2a31')}${cellBox(305, 1348, 70, 40, '#2a2a31')}${cellBox(390, 1348, 84, 40, '#2a2a31')}
-    <text x="255" y="1377" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="24">${motm.goals}</text>
-    <text x="340" y="1377" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="24">${motm.assists}</text>
-    <text x="432" y="1377" text-anchor="middle" fill="${GOLD}" font-family="${FONT}" font-weight="bold" font-size="24">${motm.ratingNum.toFixed(1)}</text>
-    <text x="255" y="1406" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">TORE</text>
-    <text x="340" y="1406" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">VORL.</text>
-    <text x="432" y="1406" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">RATING</text>`
-    : `<text x="268" y="1330" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="22">—</text>`;
-
-  const involvementList = (list, x, key) =>
-    list.length === 0
-      ? `<text x="${x + 100}" y="1310" text-anchor="middle" fill="#6b7280" font-family="${FONT}" font-size="22">—</text>`
-      : list
-          .map((p, i) => {
-            const y = 1282 + i * 34;
-            const name = truncate(p.name, 15);
-            return `
-      <circle cx="${x + 8}" cy="${y + 13}" r="5" fill="${p.own ? accent : '#6b6b75'}"/>
-      <text x="${x + 22}" y="${y + 19}" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(name, 150, 16)}">${esc(name)}</text>
-      ${cellBox(x + 178, y, 34, 26, '#2a2a31')}
-      <text x="${x + 195}" y="${y + 19}" text-anchor="middle" fill="${p.own ? accent : '#ffffff'}" font-family="${FONT}" font-weight="bold" font-size="16">${p[key]}</text>`;
-          })
-          .join('');
 
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs>
@@ -374,6 +412,105 @@ function buildMatchReportSvg(data) {
   ${tricolor(0, 0, W, 6)}
   ${tricolor(0, H - 6, W, 6)}
 
+${inner}
+</svg>`;
+}
+
+function buildMatchReportSvg(data) {
+  idCounter = 0;
+  const num = teamNumber(data.homeName);
+  const style = TEAM_STYLES[num] || DEFAULT_STYLE;
+  const accent = style.accent;
+
+  const homeGoals = Number(data.homeGoals) || 0;
+  const awayGoals = Number(data.awayGoals) || 0;
+  const result =
+    homeGoals > awayGoals
+      ? { text: 'SIEG', fill: '#16a34a' }
+      : homeGoals < awayGoals
+        ? { text: 'NIEDERLAGE', fill: '#dc2626' }
+        : { text: 'UNENTSCHIEDEN', fill: '#52525b' };
+
+  const homePlayers = data.homePlayers || [];
+  const awayPlayers = data.awayPlayers || [];
+  const allPlayers = homePlayers.map((p) => ({ ...p, own: true })).concat(awayPlayers.map((p) => ({ ...p, own: false })));
+
+  let motm = null;
+  allPlayers.forEach((p) => {
+    const r = parseFloat(p.rating);
+    if (!isNaN(r) && (!motm || r > motm.ratingNum)) motm = { ...p, ratingNum: r };
+  });
+  const bestRating = motm ? motm.ratingNum : NaN;
+
+  const scorers = allPlayers.filter((p) => p.goals > 0).sort((a, b) => b.goals - a.goals).slice(0, 4);
+  const assisters = allPlayers.filter((p) => p.assists > 0).sort((a, b) => b.assists - a.assists).slice(0, 4);
+
+  const ownCrest = (cx, cy, size) => logo(cx, cy, size);
+  // Gegner-Wappen: echtes EA-Wappen (data.awayCrest = data:-URI), sonst Ersatz-Wappen mit Initialen
+  const oppCrest = (cx, cy, size) =>
+    data.awayCrest
+      ? `<image x="${cx - size / 2}" y="${cy - size / 2}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet" href="${data.awayCrest}" xlink:href="${data.awayCrest}"/>`
+      : crest(cx, cy, size, { mono: initials(data.awayName), ribbon: '', accent, own: false });
+
+  const s = data.stats || {};
+  const st = (k) => s[k] || { h: 0, a: 0 };
+
+  // Team-Statistik-Zeilen: [Label, {h,a}, Suffix, weniger-ist-besser]
+  const pct = (made, att) => (att > 0 ? Math.round((made / att) * 100) : 0);
+  const statRows = [
+    ['SCHÜSSE', st('shots')],
+    ['PÄSSE ANGEKOMMEN', st('passes')],
+    ['FEHLPÄSSE', st('passesLost'), '', true],
+    ['PASSQUOTE', st('passacc'), '%'],
+    ['TACKLES GEWONNEN', st('duels')],
+    ['TACKLE-QUOTE', { h: pct(st('duels').h, st('tackleAttempts').h), a: pct(st('duels').a, st('tackleAttempts').a) }, '%'],
+  ];
+  if (s.interceptions) statRows.push(['ABFANGAKTIONEN', st('interceptions')]);
+  statRows.push(['PARADEN', st('saves')], ['ROTE KARTEN', st('redcards'), '', true]);
+  const statsInnerH = statRows.length * 41 + 3;
+  const dyStats = statsInnerH - 208; // Mehrhöhe gegenüber dem alten 5-Zeilen-Block
+
+  const H = BASE_H + dyStats;
+
+  const scoreStr = (g) => String(g);
+  const scoreSize = (g) => (String(g).length > 1 ? 74 : 104);
+
+  const homeTitle = truncate(data.homeName, 22).toUpperCase();
+  const awayTitle = truncate(data.awayName, 22).toUpperCase();
+
+
+  const motmBlock = motm
+    ? `
+    <circle cx="125" cy="1325" r="74" fill="#0b0b0e" stroke="#ffffff" stroke-width="3"/>
+    <circle cx="125" cy="1325" r="66" fill="none" stroke="${motm.own ? accent : '#6b6b75'}" stroke-width="2"/>
+    ${motm.own ? ownCrest(125, 1325, 92) : oppCrest(125, 1325, 92)}
+    ${crown(325, 1250, '#b8860b')}
+    ${cellBox(220, 1296, 254, 40, '#101014')}
+    <text x="347" y="1324" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(truncate(motm.name, 20), 236, 22)}">${esc(truncate(motm.name, 20))}</text>
+    ${cellBox(220, 1348, 70, 40, '#2a2a31')}${cellBox(305, 1348, 70, 40, '#2a2a31')}${cellBox(390, 1348, 84, 40, '#2a2a31')}
+    <text x="255" y="1377" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="24">${motm.goals}</text>
+    <text x="340" y="1377" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="24">${motm.assists}</text>
+    <text x="432" y="1377" text-anchor="middle" fill="${GOLD}" font-family="${FONT}" font-weight="bold" font-size="24">${motm.ratingNum.toFixed(1)}</text>
+    <text x="255" y="1406" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">TORE</text>
+    <text x="340" y="1406" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">VORL.</text>
+    <text x="432" y="1406" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="12" letter-spacing="1">RATING</text>`
+    : `<text x="268" y="1330" text-anchor="middle" fill="#9ca3af" font-family="${FONT}" font-size="22">—</text>`;
+
+  const involvementList = (list, x, key) =>
+    list.length === 0
+      ? `<text x="${x + 100}" y="1310" text-anchor="middle" fill="#6b7280" font-family="${FONT}" font-size="22">—</text>`
+      : list
+          .map((p, i) => {
+            const y = 1282 + i * 34;
+            const name = truncate(p.name, 15);
+            return `
+      <circle cx="${x + 8}" cy="${y + 13}" r="5" fill="${p.own ? accent : '#6b6b75'}"/>
+      <text x="${x + 22}" y="${y + 19}" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="${fitSize(name, 150, 16)}">${esc(name)}</text>
+      ${cellBox(x + 178, y, 34, 26, '#2a2a31')}
+      <text x="${x + 195}" y="${y + 19}" text-anchor="middle" fill="${p.own ? accent : '#ffffff'}" font-family="${FONT}" font-weight="bold" font-size="16">${p[key]}</text>`;
+          })
+          .join('');
+  return frame(H, accent, num, `
   <!-- Kopfbereich -->
   <g transform="translate(40,0)">
     <text x="0" y="52" fill="#d4d4d8" font-family="${FONT}" font-weight="bold" font-size="15" letter-spacing="6">PRO CLUBS · ${num ? 'TEAM ' + esc(num) : 'SPIELBERICHT'}</text>
@@ -407,16 +544,13 @@ function buildMatchReportSvg(data) {
   <text x="512" y="420" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="14" letter-spacing="2">${result.text}</text>
 
   <!-- Statistik -->
-  ${panel(55, 474, 914, 246, 16)}
+  ${panel(55, 474, 914, statsInnerH + 38, 16)}
   <polygon points="300,452 724,452 708,494 316,494" fill="#0b0b0e" stroke="#4b4b55" stroke-width="2"/>
   <text x="512" y="483" text-anchor="middle" fill="#ffffff" font-family="${FONT}" font-weight="bold" font-size="24" letter-spacing="6">MATCH STATISTICS</text>
-  <rect x="80" y="500" width="864" height="208" fill="#000" fill-opacity="0.35" stroke="#ffffff" stroke-opacity="0.08"/>
-  ${statRow(0, 521, 'SCHÜSSE', st('shots').h, st('shots').a, '', accent)}
-  ${statRow(1, 562, 'PÄSSE', st('passes').h, st('passes').a, '', accent)}
-  ${statRow(2, 603, 'PASSQUOTE', st('passacc').h, st('passacc').a, '%', accent)}
-  ${statRow(3, 644, 'ZWEIKÄMPFE', st('duels').h, st('duels').a, '', accent)}
-  ${statRow(4, 685, 'PARADEN', st('saves').h, st('saves').a, '', accent)}
+  <rect x="80" y="500" width="864" height="${statsInnerH}" fill="#000" fill-opacity="0.35" stroke="#ffffff" stroke-opacity="0.08"/>
+  ${statRows.map((r, i) => statRow(i, 521 + i * 41, r[0], r[1].h, r[1].a, r[2] || '', accent, r[3])).join('')}
 
+  <g transform="translate(0,${dyStats})">
   <!-- Aufstellungen -->
   ${playerTable(32, 734, 473, data.homeName, homePlayers, ownCrest(70, 768, 62), bestRating, accent, true)}
   ${playerTable(519, 734, 473, data.awayName, awayPlayers, oppCrest(557, 768, 62), bestRating, accent, false)}
@@ -435,14 +569,17 @@ function buildMatchReportSvg(data) {
   ${involvementList(scorers, 535, 'goals')}
   ${involvementList(assisters, 768, 'assists')}
 
+  </g>
+
   <!-- Fußzeile -->
+  <g transform="translate(0,${H - BASE_H})">
   <line x1="60" y1="1452" x2="964" y2="1452" stroke="#ffffff" stroke-opacity="0.15"/>
   ${logo(300, 1492, 62)}
   ${wordmark(345, 1503, 30, 'start', 'transform="skewX(-10) translate(265,0)"')}
   <rect x="660" y="1474" width="2" height="36" fill="#ffffff" opacity="0.3"/>
   <text x="678" y="1490" fill="#d4d4d8" font-family="${FONT}" font-size="13" letter-spacing="3">WIR SIND EINE</text>
   <text x="678" y="1510" font-family="${FONT}" font-weight="bold" font-size="14" letter-spacing="3"><tspan fill="${VERDE}">GROSSE</tspan><tspan fill="${ROSSO}" dx="6">FAMILIE</tspan></text>
-</svg>`;
+  </g>`);
 }
 
-module.exports = { buildMatchReportSvg };
+module.exports = { buildMatchReportSvg, buildPlayerStatsSvg };

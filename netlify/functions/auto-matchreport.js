@@ -9,7 +9,7 @@ const { getStore } = require('@netlify/blobs');
 const { setupFonts } = require('./lib/fonts');
 setupFonts(); // Schrift bereitstellen, BEVOR sharp zum ersten Mal rendert (Netlify hat keine Systemschriften)
 const sharp = require('sharp');
-const { buildMatchReportSvg } = require('./lib/matchreport-svg');
+const { buildMatchReportSvg, buildPlayerStatsSvg } = require('./lib/matchreport-svg');
 
 const impit = new Impit({ browser: 'chrome' });
 const EA_BASE = 'https://proclubs.ea.com/api/fc';
@@ -85,6 +85,15 @@ function extractPlayers(playersObj) {
     goals: Number(p.goals) || 0,
     assists: Number(p.assists) || 0,
     rating: p.rating || '—',
+    shots: Number(p.shots) || 0,
+    passesmade: Number(p.passesmade) || 0,
+    passattempts: Number(p.passattempts) || 0,
+    tacklesmade: Number(p.tacklesmade) || 0,
+    tackleattempts: Number(p.tackleattempts) || 0,
+    saves: Number(p.saves) || 0,
+    redcards: Number(p.redcards) || 0,
+    // nur übernehmen, falls EA Abfangaktionen überhaupt liefert
+    ...(p.interceptions != null ? { interceptions: Number(p.interceptions) || 0 } : {}),
   }));
 }
 
@@ -102,10 +111,14 @@ async function renderToPng(svg) {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-async function postImageToDiscord(channelId, buffer, caption) {
+// Postet nur die Bilder (ohne Text) in einer Nachricht
+async function postImagesToDiscord(channelId, images) {
   const form = new FormData();
-  form.append('payload_json', JSON.stringify({ content: caption }));
-  form.append('files[0]', new Blob([buffer], { type: 'image/png' }), 'spielbericht.png');
+  form.append(
+    'payload_json',
+    JSON.stringify({ attachments: images.map((img, i) => ({ id: i, filename: img.name })) })
+  );
+  images.forEach((img, i) => form.append(`files[${i}]`, new Blob([img.buffer], { type: 'image/png' }), img.name));
 
   const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
     method: 'POST',
@@ -170,7 +183,7 @@ exports.handler = async (event) => {
 
       const awayCrest = await fetchCrestDataUri(match.clubs[awayId]);
 
-      const svg = buildMatchReportSvg({
+      const reportData = {
         homeName,
         awayName,
         homeGoals,
@@ -187,14 +200,21 @@ exports.handler = async (event) => {
             h: homeAttempts > 0 ? Math.round((homeMade / homeAttempts) * 100) : 0,
             a: awayAttempts > 0 ? Math.round((awayMade / awayAttempts) * 100) : 0,
           },
+          passesLost: { h: Math.max(0, homeAttempts - homeMade), a: Math.max(0, awayAttempts - awayMade) },
           duels: { h: sumPlayerStat(homePlayersObj, 'tacklesmade'), a: sumPlayerStat(awayPlayersObj, 'tacklesmade') },
+          tackleAttempts: { h: sumPlayerStat(homePlayersObj, 'tackleattempts'), a: sumPlayerStat(awayPlayersObj, 'tackleattempts') },
+          redcards: { h: sumPlayerStat(homePlayersObj, 'redcards'), a: sumPlayerStat(awayPlayersObj, 'redcards') },
+          ...(Object.values(homePlayersObj).concat(Object.values(awayPlayersObj)).some((p) => p.interceptions != null)
+            ? { interceptions: { h: sumPlayerStat(homePlayersObj, 'interceptions'), a: sumPlayerStat(awayPlayersObj, 'interceptions') } }
+            : {}),
           saves: { h: sumPlayerStat(homePlayersObj, 'saves'), a: sumPlayerStat(awayPlayersObj, 'saves') },
         },
         homePlayers: extractPlayers(homePlayersObj),
         awayPlayers: extractPlayers(awayPlayersObj),
-      });
+      };
 
-      const png = await renderToPng(svg);
+      const png = await renderToPng(buildMatchReportSvg(reportData));
+      const statsPng = await renderToPng(buildPlayerStatsSvg(reportData));
 
       const channelId = await findChannelId(guildId);
       if (!channelId) {
@@ -202,7 +222,10 @@ exports.handler = async (event) => {
         continue;
       }
 
-      await postImageToDiscord(channelId, png, `${homeName} ${homeGoals}:${awayGoals} ${awayName}`);
+      await postImagesToDiscord(channelId, [
+        { name: 'spielbericht.png', buffer: png },
+        { name: 'spielerstatistik.png', buffer: statsPng },
+      ]);
       await store.set(`club-${club.clubId}`, String(matchId));
 
       results.push({ club: club.label, status: 'gepostet', matchId });

@@ -1,106 +1,179 @@
-// Baut die Spielbericht-Grafik als SVG (statt HTML+Browser) — wird per "sharp" direkt in ein
-// PNG umgewandelt. Dadurch kein Headless-Chromium nötig (67 MB, sprengt Netlifys 50-MB-Limit),
-// sondern nur "sharp" (~28 MB), was deutlich darunter bleibt.
+// Wird alle 15 Minuten von einem GitHub-Actions-Workflow aufgerufen (siehe
+// .github/workflows/check-matches.yml). Prüft für jeden konfigurierten Club, ob seit dem
+// letzten Aufruf ein neues Spiel (Liga oder Freundschaft) gespielt wurde, und postet in
+// diesem Fall automatisch die Spielbericht-Grafik in den Kanal "match-history" — komplett
+// ohne manuelles Zutun.
 
-function esc(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+const { Impit } = require('impit');
+const { getStore } = require('@netlify/blobs');
+const { setupFonts } = require('./lib/fonts');
+setupFonts(); // Schrift bereitstellen, BEVOR sharp zum ersten Mal rendert (Netlify hat keine Systemschriften)
+const sharp = require('sharp');
+const { buildMatchReportSvg } = require('./lib/matchreport-svg');
+
+const impit = new Impit({ browser: 'chrome' });
+const EA_BASE = 'https://proclubs.ea.com/api/fc';
+
+// Die beiden zu überwachenden Clubs
+const CLUBS_TO_WATCH = [
+  { clubId: '22829', label: 'Calcio Strada 1' },
+  { clubId: '20998', label: 'Calcio Strada 2' },
+];
+
+const TARGET_CHANNEL_NAME = 'match-history';
+
+async function eaFetch(path) {
+  const res = await impit.fetch(`${EA_BASE}${path}`, {
+    headers: { Accept: 'application/json', Referer: 'https://www.ea.com/' },
+  });
+  if (!res.ok) throw new Error(`EA Status ${res.status}`);
+  return res.json();
 }
 
-function truncate(s, max) {
-  const str = String(s == null ? '' : s);
-  return str.length > max ? str.slice(0, max - 1) + '…' : str;
+async function getLatestMatch(clubId) {
+  const [league, friendly] = await Promise.all([
+    eaFetch(`/clubs/matches?platform=common-gen5&clubIds=${clubId}&matchType=leagueMatch&maxResultCount=5`).catch(() => []),
+    eaFetch(`/clubs/matches?platform=common-gen5&clubIds=${clubId}&matchType=friendlyMatch&maxResultCount=5`).catch(() => []),
+  ]);
+  const all = [].concat(Array.isArray(league) ? league : [], Array.isArray(friendly) ? friendly : []);
+  if (all.length === 0) return null;
+  all.sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+  return all[0];
 }
 
-function statBar(y, label, hVal, aVal) {
-  const h = Number(hVal) || 0;
-  const a = Number(aVal) || 0;
-  const total = h + a || 1;
-  const barWidth = 460;
-  const hWidth = (h / total) * barWidth;
-  return `
-    <text x="40" y="${y}" text-anchor="end" fill="#ffffff" font-size="13" font-family="DejaVu Sans">${h}</text>
-    <text x="300" y="${y - 10}" text-anchor="middle" fill="#9ca3af" font-size="10" font-family="DejaVu Sans" letter-spacing="1">${esc(label.toUpperCase())}</text>
-    <rect x="70" y="${y - 7}" width="${barWidth}" height="6" rx="3" fill="#374151"/>
-    <rect x="70" y="${y - 7}" width="${hWidth}" height="6" rx="3" fill="#e5e7eb"/>
-    <text x="560" y="${y}" text-anchor="start" fill="#ffffff" font-size="13" font-family="DejaVu Sans">${a}</text>`;
+function sumPlayerStat(playersObj, key) {
+  let total = 0;
+  Object.values(playersObj || {}).forEach((p) => {
+    total += Number(p[key]) || 0;
+  });
+  return total;
 }
 
-function playerTableRows(players, xOffset, startY) {
-  return players
-    .slice(0, 11)
-    .map((p, i) => {
-      const y = startY + i * 20;
-      return `
-      <text x="${xOffset}" y="${y}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans">${esc(p.pos)}</text>
-      <text x="${xOffset + 35}" y="${y}" fill="#ffffff" font-size="11" font-family="DejaVu Sans">${esc(truncate(p.name, 14))}</text>
-      <text x="${xOffset + 150}" y="${y}" fill="#ffffff" font-size="11" font-family="DejaVu Sans" text-anchor="middle">${p.goals}</text>
-      <text x="${xOffset + 175}" y="${y}" fill="#ffffff" font-size="11" font-family="DejaVu Sans" text-anchor="middle">${p.assists}</text>
-      <rect x="${xOffset + 195}" y="${y - 12}" width="32" height="16" rx="3" fill="#374151"/>
-      <text x="${xOffset + 211}" y="${y}" fill="#ffffff" font-size="11" font-family="DejaVu Sans" font-weight="bold" text-anchor="middle">${esc(p.rating)}</text>`;
-    })
-    .join('');
+function extractPlayers(playersObj) {
+  return Object.values(playersObj || {}).map((p) => ({
+    pos: p.pos || '',
+    name: p.playername || 'Unbekannt',
+    goals: Number(p.goals) || 0,
+    assists: Number(p.assists) || 0,
+    rating: p.rating || '—',
+  }));
 }
 
-// data = { homeName, awayName, homeGoals, awayGoals, stats: {shots:{h,a}, passes:{h,a}, passacc:{h,a}, duels:{h,a}, saves:{h,a}}, homePlayers: [...], awayPlayers: [...] }
-function buildMatchReportSvg(data) {
-  const allPlayers = data.homePlayers.concat(data.awayPlayers);
-  const allScorers = allPlayers.filter((p) => p.goals > 0).sort((a, b) => b.goals - a.goals);
-  const allAssisters = allPlayers.filter((p) => p.assists > 0).sort((a, b) => b.assists - a.assists);
-  const scorers = allScorers.slice(0, 4);
-  const assisters = allAssisters.slice(0, Math.max(0, 4 - scorers.length));
+async function findChannelId(guildId) {
+  const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
+    headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}` },
+  });
+  if (!res.ok) return null;
+  const channels = await res.json();
+  const match = channels.find((c) => c.type === 0 && c.name === TARGET_CHANNEL_NAME);
+  return match ? match.id : null;
+}
 
-  let motm = null;
-  allPlayers.forEach((p) => {
-    const r = parseFloat(p.rating);
-    if (!isNaN(r) && (!motm || r > motm.ratingNum)) motm = Object.assign({}, p, { ratingNum: r });
+async function renderToPng(svg) {
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+async function postImageToDiscord(channelId, buffer, caption) {
+  const form = new FormData();
+  form.append('payload_json', JSON.stringify({ content: caption }));
+  form.append('files[0]', new Blob([buffer], { type: 'image/png' }), 'spielbericht.png');
+
+  const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}` },
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Discord-Post fehlgeschlagen: ${res.status} ${text}`);
+  }
+}
+
+exports.handler = async (event) => {
+  // Schutz: nur mit korrektem Geheimwert aufrufbar, damit niemand sonst diesen Endpunkt auslöst
+  const providedSecret = event.queryStringParameters?.secret;
+  if (!process.env.CRON_SECRET || providedSecret !== process.env.CRON_SECRET) {
+    return { statusCode: 401, body: JSON.stringify({ error: 'Nicht autorisiert' }) };
+  }
+
+  const store = getStore({
+    name: 'proclubs-last-seen',
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_BLOBS_TOKEN,
   });
 
-  const s = data.stats;
-  const maxPlayers = Math.max(data.homePlayers.length, data.awayPlayers.length, 1);
-  const playersBlockHeight = Math.min(maxPlayers, 11) * 20 + 30;
-  const height = 300 + playersBlockHeight + 140;
+  const guildId = process.env.GUILD_ID;
+  const force = event.queryStringParameters?.force === '1'; // Test: Duplikat-Prüfung überspringen
+  const results = [];
 
-  const scorerLines = scorers
-    .map((p, i) => `<text x="326" y="${height - 84 + i * 17}" fill="#ffffff" font-size="12" font-family="DejaVu Sans">${esc(truncate(p.name, 16))}</text><text x="550" y="${height - 84 + i * 17}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans" text-anchor="end">${p.goals} ${p.goals === 1 ? 'Tor' : 'Tore'}</text>`)
-    .join('');
-  const assistLines = assisters
-    .map((p, i) => `<text x="326" y="${height - 84 + (scorers.length + i) * 17}" fill="#ffffff" font-size="12" font-family="DejaVu Sans">${esc(truncate(p.name, 16))}</text><text x="550" y="${height - 84 + (scorers.length + i) * 17}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans" text-anchor="end">${p.assists} ${p.assists === 1 ? 'Vorlage' : 'Vorlagen'}</text>`)
-    .join('');
+  for (const club of CLUBS_TO_WATCH) {
+    try {
+      const match = await getLatestMatch(club.clubId);
+      if (!match || !match.clubs) {
+        results.push({ club: club.label, status: 'kein Spiel gefunden' });
+        continue;
+      }
 
-  return `<svg width="600" height="${height}" viewBox="0 0 600 ${height}" xmlns="http://www.w3.org/2000/svg">
-  <rect width="600" height="${height}" rx="14" fill="#111827"/>
+      const matchId = match.match_id || `${match.timestamp}-${club.clubId}`;
+      const lastSeen = await store.get(`club-${club.clubId}`, { type: 'text' });
 
-  <text x="170" y="55" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="bold" font-family="DejaVu Sans">${esc(truncate(data.homeName, 18))}</text>
-  <rect x="255" y="30" width="90" height="36" rx="8" fill="#1f2937"/>
-  <text x="300" y="55" text-anchor="middle" fill="#ffffff" font-size="22" font-weight="bold" font-family="DejaVu Sans">${esc(data.homeGoals)} : ${esc(data.awayGoals)}</text>
-  <text x="430" y="55" text-anchor="middle" fill="#ffffff" font-size="17" font-weight="bold" font-family="DejaVu Sans">${esc(truncate(data.awayName, 18))}</text>
+      if (!force && lastSeen === String(matchId)) {
+        results.push({ club: club.label, status: 'kein neues Spiel' });
+        continue;
+      }
 
-  ${statBar(110, 'Schüsse', s.shots.h, s.shots.a)}
-  ${statBar(150, 'Pässe', s.passes.h, s.passes.a)}
-  ${statBar(190, 'Passquote %', s.passacc.h, s.passacc.a)}
-  ${statBar(230, 'Zweikämpfe', s.duels.h, s.duels.a)}
-  ${statBar(270, 'Paraden', s.saves.h, s.saves.a)}
+      const teamIds = Object.keys(match.clubs);
+      const homeId = teamIds.includes(String(club.clubId)) ? String(club.clubId) : teamIds[0];
+      const awayId = teamIds.find((id) => id !== homeId) || teamIds[1] || teamIds[0];
 
-  <text x="40" y="300" fill="#9ca3af" font-size="12" font-family="DejaVu Sans">${esc(truncate(data.homeName, 22))}</text>
-  <text x="320" y="300" fill="#9ca3af" font-size="12" font-family="DejaVu Sans">${esc(truncate(data.awayName, 22))}</text>
-  ${playerTableRows(data.homePlayers, 40, 320)}
-  ${playerTableRows(data.awayPlayers, 320, 320)}
+      const homeName = match.clubs[homeId]?.details?.name || match.clubs[homeId]?.name || club.label;
+      const awayName = match.clubs[awayId]?.details?.name || match.clubs[awayId]?.name || 'Gegner';
+      const homeGoals = match.clubs[homeId]?.score ?? match.clubs[homeId]?.goals ?? '0';
+      const awayGoals = match.clubs[awayId]?.score ?? match.clubs[awayId]?.goals ?? '0';
 
-  <rect x="40" y="${height - 130}" width="260" height="108" rx="10" fill="#1f2937"/>
-  <text x="56" y="${height - 106}" fill="#9ca3af" font-size="10" font-family="DejaVu Sans" letter-spacing="1">MAN OF THE MATCH</text>
-  ${motm
-    ? `<text x="56" y="${height - 84}" fill="#ffffff" font-size="14" font-weight="bold" font-family="DejaVu Sans">${esc(truncate(motm.name, 20))}</text>
-       <text x="56" y="${height - 66}" fill="#9ca3af" font-size="11" font-family="DejaVu Sans">${motm.goals} Tore · Rating ${esc(motm.rating)}</text>`
-    : `<text x="56" y="${height - 84}" fill="#9ca3af" font-size="13" font-family="DejaVu Sans">—</text>`}
+      const homePlayersObj = (match.players && match.players[homeId]) || {};
+      const awayPlayersObj = (match.players && match.players[awayId]) || {};
 
-  <rect x="310" y="${height - 130}" width="250" height="108" rx="10" fill="#1f2937"/>
-  <text x="326" y="${height - 106}" fill="#9ca3af" font-size="10" font-family="DejaVu Sans" letter-spacing="1">TORBETEILIGUNGEN</text>
-  ${scorerLines}${assistLines}
-  ${scorers.length === 0 && assisters.length === 0 ? `<text x="326" y="${height - 84}" fill="#9ca3af" font-size="13" font-family="DejaVu Sans">—</text>` : ''}
-</svg>`;
-}
+      const homeAttempts = sumPlayerStat(homePlayersObj, 'passattempts');
+      const awayAttempts = sumPlayerStat(awayPlayersObj, 'passattempts');
+      const homeMade = sumPlayerStat(homePlayersObj, 'passesmade');
+      const awayMade = sumPlayerStat(awayPlayersObj, 'passesmade');
 
-module.exports = { buildMatchReportSvg };
+      const svg = buildMatchReportSvg({
+        homeName,
+        awayName,
+        homeGoals,
+        awayGoals,
+        stats: {
+          shots: { h: sumPlayerStat(homePlayersObj, 'shots'), a: sumPlayerStat(awayPlayersObj, 'shots') },
+          passes: { h: homeMade, a: awayMade },
+          passacc: {
+            h: homeAttempts > 0 ? Math.round((homeMade / homeAttempts) * 100) : 0,
+            a: awayAttempts > 0 ? Math.round((awayMade / awayAttempts) * 100) : 0,
+          },
+          duels: { h: sumPlayerStat(homePlayersObj, 'tacklesmade'), a: sumPlayerStat(awayPlayersObj, 'tacklesmade') },
+          saves: { h: sumPlayerStat(homePlayersObj, 'saves'), a: sumPlayerStat(awayPlayersObj, 'saves') },
+        },
+        homePlayers: extractPlayers(homePlayersObj),
+        awayPlayers: extractPlayers(awayPlayersObj),
+      });
+
+      const png = await renderToPng(svg);
+
+      const channelId = await findChannelId(guildId);
+      if (!channelId) {
+        results.push({ club: club.label, status: `Kanal "${TARGET_CHANNEL_NAME}" nicht gefunden` });
+        continue;
+      }
+
+      await postImageToDiscord(channelId, png, `${homeName} ${homeGoals}:${awayGoals} ${awayName}`);
+      await store.set(`club-${club.clubId}`, String(matchId));
+
+      results.push({ club: club.label, status: 'gepostet', matchId });
+    } catch (err) {
+      results.push({ club: club.label, status: 'Fehler: ' + err.message });
+    }
+  }
+
+  return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true, results }) };
+};

@@ -117,4 +117,21 @@ async function buildActivity(guildId, team) {
   return { roleName, days: ACTIVITY_DAYS, total: events.length, rows };
 }
 
-module.exports = { processEventMaintenance, buildActivity };
+// Alle gespeicherten Events löschen (Statistik auf null). Gibt die Anzahl zurück.
+async function resetEvents() {
+  const store = eventStore();
+  let listing;
+  try {
+    listing = await store.list();
+  } catch {
+    return 0;
+  }
+  let n = 0;
+  for (const b of listing.blobs || []) {
+    await store.delete(b.key);
+    n++;
+  }
+  return n;
+}
+
+module.exports = { processEventMaintenance, buildActivity, resetEvents };

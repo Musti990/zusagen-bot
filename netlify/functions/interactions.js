@@ -1,7 +1,7 @@
 const nacl = require('tweetnacl');
 const { getStore } = require('@netlify/blobs');
 const { remindEvent, listMissing } = require('./lib/reminder-core');
-const { buildActivity } = require('./lib/event-stats');
+const { buildActivity, resetEvents } = require('./lib/event-stats');
 const {
   berlinToUtcTimestamp,
   getTopRoleName,
@@ -1060,6 +1060,15 @@ async function handleActivityCommand(interaction) {
   return json(200, { type: 4, data: { content: (head + lines.join('\n')).slice(0, 1900), flags: 64 } });
 }
 
+// ---------- /aktivitaet-reset (nur Admins) ----------
+async function handleActivityReset(interaction) {
+  if (!(await isKaderAdmin(interaction))) {
+    return json(200, { type: 4, data: { content: '⛔ Nur Admins können die Statistik zurücksetzen.', flags: 64 } });
+  }
+  const n = await resetEvents();
+  return json(200, { type: 4, data: { content: `🧹 Aktivitäts-Statistik zurückgesetzt. ${n} gespeicherte ${n === 1 ? 'Abstimmung' : 'Abstimmungen'} gelöscht. Ab jetzt zählen nur neue Events.`, flags: 64 } });
+}
+
 // ---------- Handler ----------
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'method not allowed' });
@@ -1102,6 +1111,10 @@ exports.handler = async (event) => {
 
   if (interaction.type === 2 && interaction.data?.name === 'rentner') {
     return handleRentnerCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'aktivitaet-reset') {
+    return handleActivityReset(interaction);
   }
 
   if (interaction.type === 2 && interaction.data?.name === 'aktivitaet') {

@@ -13,6 +13,7 @@ const {
   matchIdOf,
   buildReportData,
   renderReportImages,
+  findStatsRoleId,
   findChannelId,
   postImagesToDiscord,
   isPosted,
@@ -51,7 +52,11 @@ exports.handler = async (event) => {
       }
 
       const reportData = await buildReportData(match, club);
-      await postImagesToDiscord(channelId, await renderReportImages(reportData));
+      const statsRoleId = await findStatsRoleId();
+      await postImagesToDiscord(channelId, await renderReportImages(reportData), {
+        roleId: statsRoleId,
+        text: `📊 Neues Spiel von **${club.label}**`,
+      });
       await markPosted(store, club.clubId, matchId);
 
       results.push({ club: club.label, status: 'gepostet', matchId });

@@ -167,8 +167,8 @@ function buildComponents(eventId) {
     {
       type: 1,
       components: [
-        { type: 2, style: 3, label: 'Zusage', emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
-        { type: 2, style: 4, label: 'Absage', emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
+        { type: 2, style: 3, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
+        { type: 2, style: 4, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
       ],
     },
   ];

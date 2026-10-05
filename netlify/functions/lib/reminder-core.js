@@ -45,21 +45,38 @@ function formatWhen(ts) {
   return `<t:${ts}:F>`; // Discord zeigt das in der lokalen Zeit des Lesers
 }
 
+// Rollen-IDs bestimmen, auf die sich ein Event bezieht:
+// ev.team "1 Mannschaft"/"2 Mannschaft" -> nur diese Rolle; leer -> beide Mannschaften.
+async function targetRoleIds(guildId, ev) {
+  const rolesRes = await api(`/guilds/${guildId}/roles`);
+  const roles = rolesRes.ok ? await rolesRes.json() : [];
+  const wanted = ev && ev.team ? [norm(ev.team)] : KADER_ROLE_NAMES;
+  return roles.filter((r) => wanted.includes(norm(r.name))).map((r) => r.id);
+}
+
+// Mitglieder einer Guild laden
+async function loadMembers(guildId) {
+  const memRes = await api(`/guilds/${guildId}/members?limit=1000`);
+  return memRes.ok ? await memRes.json() : [];
+}
+
+// Alle aus den Zielrollen, die noch nicht abgestimmt haben
+function missingVoters(members, roleIds, ev) {
+  const voted = new Set([...(ev.accepted || []), ...(ev.declined || [])].map((u) => u.id));
+  return members.filter(
+    (m) => !m.user?.bot && (m.roles || []).some((r) => roleIds.includes(r)) && !voted.has(m.user.id)
+  );
+}
+
 // Verschickt die Erinnerung für EIN Event an alle Kader-Mitglieder ohne Stimme.
 // markAsSent=true setzt reminderSent (für die Automatik); beim Button bleibt es false,
 // damit die automatische 2h-Erinnerung später trotzdem noch kommt.
 async function remindEvent(guildId, ev, { markAsSent = false } = {}) {
-  const rolesRes = await api(`/guilds/${guildId}/roles`);
-  const roles = rolesRes.ok ? await rolesRes.json() : [];
-  const kaderRoleIds = roles.filter((r) => KADER_ROLE_NAMES.includes(norm(r.name))).map((r) => r.id);
-  if (kaderRoleIds.length === 0) return { error: 'Es gibt keine Rollen „1 Mannschaft“ oder „2 Mannschaft“.' };
+  const roleIds = await targetRoleIds(guildId, ev);
+  if (roleIds.length === 0) return { error: 'Für dieses Event wurde keine passende Mannschafts-Rolle gefunden.' };
 
-  const memRes = await api(`/guilds/${guildId}/members?limit=1000`);
-  const members = memRes.ok ? await memRes.json() : [];
-  const voted = new Set([...(ev.accepted || []), ...(ev.declined || [])].map((u) => u.id));
-  const targets = members.filter(
-    (m) => !m.user?.bot && (m.roles || []).some((r) => kaderRoleIds.includes(r)) && !voted.has(m.user.id)
-  );
+  const members = await loadMembers(guildId);
+  const targets = missingVoters(members, roleIds, ev);
 
   const text =
     `Hey! Du hast noch nicht für **${ev.title}** am ${formatWhen(ev.timestamp)} abgestimmt.\n` +
@@ -146,4 +163,16 @@ async function processEventReminders(guildId) {
   return results;
 }
 
-module.exports = { processEventReminders, remindEvent };
+// Für den "Wer fehlt noch?"-Button: Namen der Nicht-Abstimmer (nach Mannschaft des Events)
+async function listMissing(guildId, ev) {
+  const roleIds = await targetRoleIds(guildId, ev);
+  if (roleIds.length === 0) return { error: 'Für dieses Event wurde keine passende Mannschafts-Rolle gefunden.' };
+  const members = await loadMembers(guildId);
+  const missing = missingVoters(members, roleIds, ev).map((m) => {
+    const nick = m.nick || m.user?.global_name || m.user?.username || 'Unbekannt';
+    return nick.split('|')[0].trim() || nick;
+  });
+  return { names: missing };
+}
+
+module.exports = { processEventReminders, remindEvent, listMissing };

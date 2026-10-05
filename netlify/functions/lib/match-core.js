@@ -161,10 +161,35 @@ async function findChannelId() {
   return cachedChannelId;
 }
 
+const STATS_ROLE_NAME = 'statistiken';
+let cachedStatsRoleId; // undefined = noch nicht gesucht, null = nicht vorhanden
+
+// Rollen-ID der @Statistiken-Rolle finden (einmal cachen)
+async function findStatsRoleId() {
+  if (cachedStatsRoleId !== undefined) return cachedStatsRoleId;
+  const res = await fetch(`https://discord.com/api/v10/guilds/${process.env.GUILD_ID}/roles`, {
+    headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}` },
+  });
+  cachedStatsRoleId = null;
+  if (res.ok) {
+    const roles = await res.json();
+    const r = roles.find((x) => String(x.name).toLowerCase() === STATS_ROLE_NAME);
+    if (r) cachedStatsRoleId = r.id;
+  }
+  return cachedStatsRoleId;
+}
+
 // Postet nur die Bilder (ohne Text) in einer Nachricht
-async function postImagesToDiscord(channelId, images) {
+async function postImagesToDiscord(channelId, images, content) {
   const form = new FormData();
-  form.append('payload_json', JSON.stringify({ attachments: images.map((img, i) => ({ id: i, filename: img.name })) }));
+  const payload = { attachments: images.map((img, i) => ({ id: i, filename: img.name })) };
+  if (content && content.roleId) {
+    payload.content = `<@&${content.roleId}>${content.text ? ' ' + content.text : ''}`;
+    payload.allowed_mentions = { roles: [content.roleId] }; // gezielt nur diese Rolle pingen
+  } else if (content && content.text) {
+    payload.content = content.text;
+  }
+  form.append('payload_json', JSON.stringify(payload));
   images.forEach((img, i) => form.append(`files[${i}]`, new Blob([img.buffer], { type: 'image/png' }), img.name));
 
   const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
@@ -204,6 +229,7 @@ module.exports = {
   renderReportImages,
   renderSessionSummary,
   findChannelId,
+  findStatsRoleId,
   postImagesToDiscord,
   isPosted,
   markPosted,

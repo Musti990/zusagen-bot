@@ -777,6 +777,10 @@ async function handleKaderButton(interaction) {
   const label = KADER_TEAMS[team].label;
 
   // --- Buttons an der Kader-Nachricht ---
+  if (action === 'refresh') {
+    await requestKaderRefresh({ action: 'refresh', team, guildId });
+    return ephemeral('🔄 Kader wird aktualisiert…');
+  }
   if (action === 'add') {
     return ephemeral(`Wen willst du zum Kader von **${label}** hinzufügen? (bis zu 10 auf einmal)`, {
       components: [{ type: 1, components: [{ type: 5, custom_id: `kader:addsel:${team}`, placeholder: 'Spieler auswählen…', min_values: 1, max_values: 10 }] }],

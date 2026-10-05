@@ -440,20 +440,18 @@ async function handleButton(interaction, store) {
   };
 
   const inAccepted = ev.accepted.some((u) => u.id === user.id);
-  const inMaybe = ev.maybe.some((u) => u.id === user.id);
   const inDeclined = ev.declined.some((u) => u.id === user.id);
 
   ev.accepted = ev.accepted.filter((u) => u.id !== user.id);
-  ev.maybe = ev.maybe.filter((u) => u.id !== user.id);
   ev.declined = ev.declined.filter((u) => u.id !== user.id);
+  if (Array.isArray(ev.maybe)) ev.maybe = ev.maybe.filter((u) => u.id !== user.id); // Altbestand aufräumen
 
   const wasAlreadySelected =
     (action === 'accept' && inAccepted) ||
-    (action === 'maybe' && inMaybe) ||
     (action === 'decline' && inDeclined);
 
-  if (!wasAlreadySelected) {
-    const list = action === 'accept' ? ev.accepted : action === 'maybe' ? ev.maybe : ev.declined;
+  if (!wasAlreadySelected && (action === 'accept' || action === 'decline')) {
+    const list = action === 'accept' ? ev.accepted : ev.declined;
     list.push(user);
   }
 

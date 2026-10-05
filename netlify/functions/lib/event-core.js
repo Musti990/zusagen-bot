@@ -170,6 +170,7 @@ function buildComponents(eventId) {
         { type: 2, style: 3, label: 'Ja', custom_id: `rsvp:accept:${eventId}` },
         { type: 2, style: 4, label: 'Nein', custom_id: `rsvp:decline:${eventId}` },
         { type: 2, style: 2, label: 'Erinnerung senden', emoji: { name: '⏰' }, custom_id: `rsvp:remind:${eventId}` },
+        { type: 2, style: 2, label: 'Wer fehlt noch?', emoji: { name: '❔' }, custom_id: `rsvp:missing:${eventId}` },
       ],
     },
   ];

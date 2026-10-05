@@ -12,7 +12,7 @@ const BASE_H = 1536;
 const FONT = 'DejaVu Sans';
 
 // Akzentfarbe pro Team (wird anhand der Zahl im Teamnamen gewählt)
-const { LOGO_B64, LOGO_W, LOGO_H } = require('./logo-data');
+const { getLogo } = require('./logo-data');
 
 // Italienische Trikolore wie im Calcio-Strada-Logo
 const VERDE = '#009246';
@@ -102,15 +102,18 @@ function wordmark(x, y, size, anchor = 'start', extra = '') {
   return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${FONT}" font-weight="bold" font-size="${size}" letter-spacing="1" ${extra}><tspan fill="#ffffff">CALCIO</tspan><tspan fill="${VERDE}" dx="${size * 0.3}">ST</tspan><tspan fill="${BIANCO}">RA</tspan><tspan fill="${ROSSO}">DA</tspan></text>`;
 }
 
-// Echtes Logo, kreisförmig zugeschnitten
+// Echtes Logo, kreisförmig zugeschnitten. currentLogo wird je Grafik auf das Team-Logo gesetzt.
+let currentLogo = getLogo('1');
 function logo(cx, cy, size) {
   const clip = uid('logoClip');
-  const scale = size / (LOGO_W * 0.93);
-  const w = LOGO_W * scale;
-  const h = LOGO_H * scale;
+  const L = currentLogo;
+  const scale = size / (L.w * 0.93);
+  const w = L.w * scale;
+  const h = L.h * scale;
+  const uri = `data:${L.mime};base64,${L.b64}`;
   return `<clipPath id="${clip}"><circle cx="${cx}" cy="${cy}" r="${size / 2}"/></clipPath>
   <circle cx="${cx + 3}" cy="${cy + 5}" r="${size / 2}" fill="#000" opacity="0.5"/>
-  <image x="${cx - w / 2}" y="${cy - h / 2 + 1 * scale}" width="${w}" height="${h}" preserveAspectRatio="none" clip-path="url(#${clip})" href="data:image/png;base64,${LOGO_B64}" xlink:href="data:image/png;base64,${LOGO_B64}"/>
+  <image x="${cx - w / 2}" y="${cy - h / 2 + 1 * scale}" width="${w}" height="${h}" preserveAspectRatio="none" clip-path="url(#${clip})" href="${uri}" xlink:href="${uri}"/>
   <circle cx="${cx}" cy="${cy}" r="${size / 2}" fill="none" stroke="#2a2a2e" stroke-width="${Math.max(1, size / 60)}"/>`;
 }
 
@@ -305,6 +308,7 @@ function buildPlayerStatsSvg(data) {
   idCounter = 0;
   const num = teamNumber(data.homeName);
   const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  currentLogo = getLogo(num);
   const players = data.homePlayers || [];
   let best = NaN;
   (data.homePlayers || []).concat(data.awayPlayers || []).forEach((p) => {
@@ -428,6 +432,7 @@ function buildSessionSummarySvg(data) {
   idCounter = 0;
   const num = teamNumber(data.teamName);
   const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  currentLogo = getLogo(num);
   const matches = data.matches || [];
 
   const players = (data.players || [])
@@ -621,6 +626,7 @@ function buildKaderSvg(data) {
   idCounter = 0;
   const num = teamNumber(data.teamName);
   const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  currentLogo = getLogo(num);
   const players = (data.players || []).slice();
   const groups = KADER_GROUPS.map((g) => ({
     ...g,
@@ -770,6 +776,7 @@ function buildLineupSvg(data) {
   idCounter = 0;
   const num = teamNumber(data.teamName);
   const accent = (TEAM_STYLES[num] || DEFAULT_STYLE).accent;
+  currentLogo = getLogo(num);
   const formation = FORMATIONS[data.formation] ? data.formation : '3-5-2';
   const slots = FORMATIONS[formation];
   const names = data.players || {};
@@ -812,6 +819,7 @@ function buildMatchReportSvg(data) {
   const num = teamNumber(data.homeName);
   const style = TEAM_STYLES[num] || DEFAULT_STYLE;
   const accent = style.accent;
+  currentLogo = getLogo(num);
 
   const homeGoals = Number(data.homeGoals) || 0;
   const awayGoals = Number(data.awayGoals) || 0;

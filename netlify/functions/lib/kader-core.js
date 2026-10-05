@@ -133,6 +133,7 @@ function kaderComponents(team) {
         { type: 2, style: 3, label: 'Spieler hinzufügen', emoji: { name: '➕' }, custom_id: `kader:add:${team}` },
         { type: 2, style: 4, label: 'Spieler entfernen', emoji: { name: '➖' }, custom_id: `kader:rem:${team}` },
         { type: 2, style: 2, label: 'Nummer vergeben', emoji: { name: '🔢' }, custom_id: `kader:num:${team}` },
+        { type: 2, style: 2, label: 'Aktualisieren', emoji: { name: '🔄' }, custom_id: `kader:refresh:${team}` },
       ],
     },
   ];

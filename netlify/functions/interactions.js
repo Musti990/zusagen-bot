@@ -1,6 +1,6 @@
 const nacl = require('tweetnacl');
 const { getStore } = require('@netlify/blobs');
-const { remindEvent } = require('./lib/reminder-core');
+const { remindEvent, listMissing } = require('./lib/reminder-core');
 const {
   berlinToUtcTimestamp,
   getTopRoleName,
@@ -445,6 +445,20 @@ async function handleButton(interaction, store) {
       type: 4,
       data: { content: 'Dieses Event ist nicht mehr verfügbar.', flags: 64 },
     });
+  }
+
+  // Admin-Button: Liste der Nicht-Abstimmer (nur für den Admin sichtbar)
+  if (action === 'missing') {
+    if (!(await isKaderAdmin(interaction))) {
+      return json(200, { type: 4, data: { content: '⛔ Nur Admins können das sehen.', flags: 64 } });
+    }
+    const r = await listMissing(interaction.guild_id, ev);
+    if (r.error) return json(200, { type: 4, data: { content: '⚠️ ' + r.error, flags: 64 } });
+    const teamLabel = ev.team ? ` (${ev.team})` : '';
+    const content = r.names.length === 0
+      ? `✅ Alle haben abgestimmt${teamLabel}.`
+      : `❔ Noch nicht abgestimmt${teamLabel} (${r.names.length}):\n` + r.names.map((n) => `• ${n}`).join('\n');
+    return json(200, { type: 4, data: { content: content.slice(0, 1900), flags: 64 } });
   }
 
   // Admin-Button: Erinnerung sofort an alle ohne Stimme senden

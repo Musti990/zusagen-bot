@@ -29,6 +29,7 @@ const {
 } = require('./lib/session-core');
 
 const { processPendingKader } = require('./lib/kader-render');
+const { processEventMaintenance } = require('./lib/event-stats');
 
 // Netlify beendet zeitgesteuerte Funktionen nach 30 s -> pro Lauf höchstens so viele Spiele
 // verarbeiten; der Rest kommt automatisch beim nächsten Lauf 2 Minuten später.
@@ -106,6 +107,14 @@ exports.handler = async () => {
     if (kader.length) results.push({ kader });
   } catch (err) {
     results.push({ kader: 'Fehler: ' + err.message });
+  }
+
+  // Events 1,5 h nach dem Treffpunkt schließen (Nachricht löschen) + alte wegräumen
+  try {
+    const events = await processEventMaintenance(process.env.GUILD_ID);
+    if (events.length) results.push({ events });
+  } catch (err) {
+    results.push({ events: 'Fehler: ' + err.message });
   }
 
   return { statusCode: 200, body: JSON.stringify({ ok: true, results }) };

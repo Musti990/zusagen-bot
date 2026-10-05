@@ -169,6 +169,7 @@ function buildComponents(eventId) {
       components: [
         { type: 2, style: 3, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
         { type: 2, style: 4, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
+        { type: 2, style: 2, label: 'Erinnerung senden', emoji: { name: '⏰' }, custom_id: `rsvp:remind:${eventId}` },
       ],
     },
   ];

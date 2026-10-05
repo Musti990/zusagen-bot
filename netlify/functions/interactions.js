@@ -1,6 +1,7 @@
 const nacl = require('tweetnacl');
 const { getStore } = require('@netlify/blobs');
 const { remindEvent, listMissing } = require('./lib/reminder-core');
+const { buildActivity } = require('./lib/event-stats');
 const {
   berlinToUtcTimestamp,
   getTopRoleName,
@@ -1040,6 +1041,25 @@ async function handleLineupModal(interaction) {
   return luEph(`**${slotKey}:** ${name} (Aushilfe)`);
 }
 
+// ---------- /aktivitaet (nur Admins): Nicht-Abstimmer der letzten 20 Tage ----------
+async function handleActivityCommand(interaction) {
+  if (!(await isKaderAdmin(interaction))) {
+    return json(200, { type: 4, data: { content: '⛔ Nur Admins können die Aktivität sehen.', flags: 64 } });
+  }
+  const team = String((interaction.data.options || []).find((o) => o.name === 'team')?.value || '1');
+  const r = await buildActivity(interaction.guild_id, team);
+  if (r.error) return json(200, { type: 4, data: { content: '⚠️ ' + r.error, flags: 64 } });
+  if (r.empty) {
+    return json(200, { type: 4, data: { content: `In den letzten ${r.days} Tagen gab es noch keine abgeschlossenen Abstimmungen.`, flags: 64 } });
+  }
+  const head = `📊 **Aktivität ${r.roleName}** – letzte ${r.days} Tage (${r.total} ${r.total === 1 ? 'Abstimmung' : 'Abstimmungen'})\n`;
+  const lines = r.rows.map((row) => {
+    const icon = row.missed === 0 ? '✅' : row.missed >= Math.ceil(row.total / 2) ? '❌' : '⚠️';
+    return `${icon} ${row.name} – ${row.missed}/${row.total} verpasst`;
+  });
+  return json(200, { type: 4, data: { content: (head + lines.join('\n')).slice(0, 1900), flags: 64 } });
+}
+
 // ---------- Handler ----------
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'method not allowed' });
@@ -1082,6 +1102,10 @@ exports.handler = async (event) => {
 
   if (interaction.type === 2 && interaction.data?.name === 'rentner') {
     return handleRentnerCommand(interaction);
+  }
+
+  if (interaction.type === 2 && interaction.data?.name === 'aktivitaet') {
+    return handleActivityCommand(interaction);
   }
 
   if (interaction.type === 2 && interaction.data?.name === 'kader') {

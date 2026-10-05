@@ -117,7 +117,7 @@ async function getMissingField(guildId, respondedIds, allowedRoleNames) {
 async function buildEmbed(ev) {
   const fmtMentions = (arr) =>
     arr.length === 0
-      ? 'None'
+      ? 'Niemand'
       : arr
           .map((u) => {
             const roleStr = u.role ? ` (${escapeMd(u.role)})` : '';
@@ -132,27 +132,26 @@ async function buildEmbed(ev) {
 
   const overflow = ev.accepted.length > ev.limit ? ev.accepted.length - ev.limit : 0;
   const acceptedHeader =
-    overflow > 0 ? `✅ Can Play (${ev.limit} +${overflow})` : `✅ Can Play (${ev.accepted.length})`;
+    overflow > 0 ? `✅ Kann spielen (${ev.limit} +${overflow})` : `✅ Kann spielen (${ev.accepted.length})`;
 
   const fields = [
-    { name: 'Time & Date', value: `<t:${ev.timestamp}:F>  (<t:${ev.timestamp}:R>)` },
+    { name: '🗓️ Datum & Uhrzeit', value: `<t:${ev.timestamp}:F>  (<t:${ev.timestamp}:R>)` },
   ];
 
-  if (ev.team) fields.push({ name: 'Team', value: escapeMd(ev.team) });
-  if (ev.flag) fields.push({ name: 'Info', value: escapeMd(ev.flag) });
+  if (ev.team) fields.push({ name: 'Mannschaft', value: escapeMd(ev.team) });
+  if (ev.flag) fields.push({ name: 'ℹ️ Info', value: escapeMd(ev.flag) });
 
-  fields.push({ name: 'Notes', value: '```\n' + (ev.beschreibung ? escapeMd(ev.beschreibung) : 'No notes added.') + '\n```' });
+  if (ev.beschreibung) fields.push({ name: '📝 Beschreibung', value: '```\n' + escapeMd(ev.beschreibung) + '\n```' });
 
   fields.push({ name: acceptedHeader, value: fmtMentions(ev.accepted) });
-  fields.push({ name: `❌ Cannot Play (${ev.declined.length})`, value: fmtMentions(ev.declined) });
-  fields.push({ name: `❓ Tentative (${ev.maybe.length})`, value: fmtMentions(ev.maybe) });
+  fields.push({ name: `❌ Kann nicht (${ev.declined.length})`, value: fmtMentions(ev.declined) });
 
   const description = ev.creatorId
-    ? `<@${ev.creatorId}> has scheduled a Clubs session. Use the buttons below to show your availability.`
-    : `**${escapeMd(ev.creator)}** has scheduled a Clubs session. Use the buttons below to show your availability.`;
+    ? `<@${ev.creatorId}> hat eine Session angesetzt. Bitte gib unten deine Rückmeldung ab.`
+    : `**${escapeMd(ev.creator)}** hat eine Session angesetzt. Bitte gib unten deine Rückmeldung ab.`;
 
   return {
-    title: `${ev.title} Scheduled Session`,
+    title: `${ev.title} · Session`,
     description,
     color: 0x000000,
     thumbnail: ev.imageUrl ? { url: ev.imageUrl } : undefined,
@@ -168,9 +167,8 @@ function buildComponents(eventId) {
     {
       type: 1,
       components: [
-        { type: 2, style: 3, emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
-        { type: 2, style: 4, emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
-        { type: 2, style: 2, emoji: { name: '❓' }, custom_id: `rsvp:maybe:${eventId}` },
+        { type: 2, style: 3, label: 'Zusage', emoji: { name: '✅' }, custom_id: `rsvp:accept:${eventId}` },
+        { type: 2, style: 4, label: 'Absage', emoji: { name: '❌' }, custom_id: `rsvp:decline:${eventId}` },
       ],
     },
   ];

@@ -75,6 +75,10 @@ exports.handler = async () => {
       ],
     },
     {
+      name: 'aktivitaet-reset',
+      description: 'Setzt die Aktivitäts-Statistik zurück (löscht alle gespeicherten Abstimmungen) – nur Admins',
+    },
+    {
       name: 'kader',
       description: 'Postet den Kader (Bild + Liste) mit Buttons zum Bearbeiten (nur Admins)',
       options: [

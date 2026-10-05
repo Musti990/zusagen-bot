@@ -1,5 +1,6 @@
 const nacl = require('tweetnacl');
 const { getStore } = require('@netlify/blobs');
+const { remindEvent } = require('./lib/reminder-core');
 const {
   berlinToUtcTimestamp,
   getTopRoleName,
@@ -402,9 +403,30 @@ async function handleCreateEvent(interaction, store) {
     accepted: [],
     maybe: [],
     declined: [],
+    reminderSent: false, // Erinnerung 2h vor Termin wurde noch nicht verschickt
+    messageId: null,     // wird gleich nach dem Posten nachgetragen (für @-Erinnerung im Kanal)
   };
 
   await store.setJSON(eventId, ev);
+
+  // Nachricht-ID nachtragen: die /event-Antwort selbst liefert sie nicht, daher @original abfragen
+  (async () => {
+    try {
+      const res = await fetch(
+        `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`
+      );
+      if (res.ok) {
+        const msg = await res.json();
+        const fresh = await store.get(eventId, { type: 'json' });
+        if (fresh) {
+          fresh.messageId = msg.id;
+          await store.setJSON(eventId, fresh);
+        }
+      }
+    } catch (_) {
+      // nicht schlimm – die @-Erinnerung im Kanal fällt dann nur weg, die DMs gehen trotzdem
+    }
+  })();
 
   return json(200, {
     type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
@@ -422,6 +444,20 @@ async function handleButton(interaction, store) {
     return json(200, {
       type: 4,
       data: { content: 'Dieses Event ist nicht mehr verfügbar.', flags: 64 },
+    });
+  }
+
+  // Admin-Button: Erinnerung sofort an alle ohne Stimme senden
+  if (action === 'remind') {
+    if (!(await isKaderAdmin(interaction))) {
+      return json(200, { type: 4, data: { content: '⛔ Nur Admins können die Erinnerung senden.', flags: 64 } });
+    }
+    const r = await remindEvent(interaction.guild_id, ev, { markAsSent: false });
+    if (r.error) return json(200, { type: 4, data: { content: '⚠️ ' + r.error, flags: 64 } });
+    const extra = r.noDm ? ` (${r.noDm} ohne offene DMs – im Kanal erwähnt)` : '';
+    return json(200, {
+      type: 4,
+      data: { content: r.total === 0 ? '✅ Alle haben schon abgestimmt – keine Erinnerung nötig.' : `⏰ Erinnerung an ${r.total} Spieler gesendet${extra}.`, flags: 64 },
     });
   }
 

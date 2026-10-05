@@ -29,7 +29,6 @@ const {
 } = require('./lib/session-core');
 
 const { processPendingKader } = require('./lib/kader-render');
-const { processEventReminders } = require('./lib/reminder-core');
 
 // Netlify beendet zeitgesteuerte Funktionen nach 30 s -> pro Lauf höchstens so viele Spiele
 // verarbeiten; der Rest kommt automatisch beim nächsten Lauf 2 Minuten später.
@@ -107,14 +106,6 @@ exports.handler = async () => {
     if (kader.length) results.push({ kader });
   } catch (err) {
     results.push({ kader: 'Fehler: ' + err.message });
-  }
-
-  // Event-Erinnerungen (2h vor Termin) verschicken
-  try {
-    const reminders = await processEventReminders(process.env.GUILD_ID);
-    if (reminders.length) results.push({ reminders });
-  } catch (err) {
-    results.push({ reminders: 'Fehler: ' + err.message });
   }
 
   return { statusCode: 200, body: JSON.stringify({ ok: true, results }) };

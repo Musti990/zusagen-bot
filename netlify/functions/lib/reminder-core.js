@@ -175,4 +175,4 @@ async function listMissing(guildId, ev) {
   return { names: missing };
 }
 
-module.exports = { processEventReminders, remindEvent, listMissing };
+module.exports = { processEventReminders, remindEvent, listMissing, targetRoleIds, loadMembers, missingVoters, api, norm };

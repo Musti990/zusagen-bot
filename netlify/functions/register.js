@@ -59,6 +59,22 @@ exports.handler = async () => {
       description: 'Postet eine Erwähnung für montelione',
     },
     {
+      name: 'aktivitaet',
+      description: 'Zeigt, wer in den letzten 20 Tagen nicht abgestimmt hat (nur Admins)',
+      options: [
+        {
+          name: 'team',
+          description: 'Welche Mannschaft?',
+          type: 3,
+          required: true,
+          choices: [
+            { name: '1. Mannschaft', value: '1' },
+            { name: '2. Mannschaft', value: '2' },
+          ],
+        },
+      ],
+    },
+    {
       name: 'kader',
       description: 'Postet den Kader (Bild + Liste) mit Buttons zum Bearbeiten (nur Admins)',
       options: [

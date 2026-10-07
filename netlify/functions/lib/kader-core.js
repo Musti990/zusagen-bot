@@ -5,13 +5,13 @@
 const { blobStore } = require('./clubs');
 
 const KADER_TEAMS = {
-  '1': { label: 'Calcio Strada 1', roleName: '1 Mannschaft', color: 0x1fbf63 },
-  '2': { label: 'Calcio Strada 2', roleName: '2 Mannschaft', color: 0xe8434f },
+  '1': { label: 'Calcio Strada 1', roleName: '1 Mannschaft', color: 0xe8434f },
+  '2': { label: 'Calcio Strada 2', roleName: '2 Mannschaft', color: 0x1fbf63 },
 };
 
 // Wer den Kader bearbeiten darf: Discord-Rechte "Administrator", "Server verwalten" oder "Rollen verwalten"
 // ODER eine Rolle mit einem dieser Namen (Groß-/Kleinschreibung egal) -> hier bei Bedarf anpassen
-const ADMIN_ROLE_NAMES = ['admin', 'owner', 'kapitän', 'kapitan', 'captain', 'vorstand', 'moderator'];
+const ADMIN_ROLE_NAMES = ['admin', 'owner', 'kapitän', 'kapitan', 'captain', 'vorstand', 'moderator', 'discordbotadmin'];
 const PERM_ADMIN = 1n << 3n;
 const PERM_MANAGE_GUILD = 1n << 5n;
 const PERM_MANAGE_ROLES = 1n << 28n;
